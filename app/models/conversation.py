@@ -1,6 +1,8 @@
 import enum
 import uuid
+from datetime import datetime
 
+from sqlalchemy import DateTime
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -49,6 +51,9 @@ class Conversation(Base, UUIDPk, Timestamps):
     )
     # Runtime state the flow engine reads/writes (current node, answers, etc.)
     context: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
 
 
 class Message(Base, UUIDPk, Timestamps):

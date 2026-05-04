@@ -1,5 +1,6 @@
 import secrets
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -261,6 +262,7 @@ async def start_session(
         )
     elif result.ended:
         conv.status = ConversationStatus.closed
+        conv.closed_at = datetime.now(timezone.utc)
 
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(conv, "context")
@@ -323,6 +325,35 @@ async def poll(payload: PollRequest, db: AsyncSession = Depends(get_session)) ->
             for m in msgs
         ],
     )
+
+
+class _CloseRequest(BaseModel):
+    conversation_id: uuid.UUID
+
+
+@router.post("/close", status_code=204)
+async def visitor_close(
+    payload: _CloseRequest, db: AsyncSession = Depends(get_session)
+) -> None:
+    """Visitor-initiated end of chat. Closes the conversation and drops a
+    system message so the agent's inbox sees the disconnect on next poll."""
+    conv = await db.get(Conversation, payload.conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    if conv.status == ConversationStatus.closed:
+        return
+    conv.status = ConversationStatus.closed
+    conv.closed_at = datetime.now(timezone.utc)
+    db.add(
+        Message(
+            conversation_id=conv.id,
+            sender=MessageSender.system,
+            kind="system",
+            body="Visitor ended the chat",
+            payload={"event": "visitor_closed"},
+        )
+    )
+    await db.commit()
 
 
 from fastapi import File as _FFile
@@ -602,6 +633,7 @@ async def reply(
         )
     elif result.ended:
         conv.status = ConversationStatus.closed
+        conv.closed_at = datetime.now(timezone.utc)
 
     from sqlalchemy.orm.attributes import flag_modified
     flag_modified(conv, "context")

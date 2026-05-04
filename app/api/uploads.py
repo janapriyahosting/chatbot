@@ -12,7 +12,9 @@ from app.models.user import UserRole
 router = APIRouter(
     prefix="/uploads",
     tags=["uploads"],
-    dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor))],
+    # Any authenticated staff member can upload — agents need it to attach
+    # files in live chat; admin/supervisor use it for flow media.
+    dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor, UserRole.agent))],
 )
 
 _ROOT = Path(__file__).resolve().parent.parent.parent / "public" / "uploads"

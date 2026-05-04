@@ -49,13 +49,32 @@ export const api = {
     req<any>("POST", "/users", body),
   updateUser: (id: string, body: any) => req<any>("PATCH", `/users/${id}`, body),
   deleteUser: (id: string) => req<any>("DELETE", `/users/${id}`),
-  listConversations: (scope: "mine" | "queue" | "all") =>
+  listConversations: (scope: "mine" | "queue" | "all" | "closed") =>
     req<any[]>("GET", `/agent/conversations?scope=${scope}`),
   getConversation: (id: string) => req<any>("GET", `/agent/conversations/${id}`),
   postAgentMessage: (id: string, text: string) =>
     req<any>("POST", `/agent/conversations/${id}/message`, { text }),
+  postAgentAttachment: (id: string, opts: { url: string; kind: "image" | "document"; filename?: string; caption?: string }) =>
+    req<any>("POST", `/agent/conversations/${id}/message`, {
+      text: opts.caption || "",
+      attachment_url: opts.url,
+      attachment_kind: opts.kind,
+      attachment_filename: opts.filename,
+    }),
   closeConversation: (id: string) =>
     req<any>("POST", `/agent/conversations/${id}/close`),
+  conversationCounts: () =>
+    req<Record<string, number>>("GET", "/agent/conversations/counts"),
+  listTemplates: () =>
+    req<Array<{ id: string; title: string; body: string; sort_order: number }>>("GET", "/templates"),
+  createTemplate: (body: { title: string; body: string; sort_order: number }) =>
+    req<any>("POST", "/templates", body),
+  updateTemplate: (id: string, body: { title: string; body: string; sort_order: number }) =>
+    req<any>("PATCH", `/templates/${id}`, body),
+  deleteTemplate: (id: string) =>
+    req<any>("DELETE", `/templates/${id}`),
+  polishMessage: (text: string, tone?: string) =>
+    req<{ text: string }>("POST", "/agent/polish", { text, tone }),
   assignConversation: (id: string, userId: string | null) =>
     req<any>("POST", `/agent/conversations/${id}/assign`, { user_id: userId }),
   searchConversations: (q: string) =>

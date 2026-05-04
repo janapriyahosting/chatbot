@@ -12,12 +12,19 @@ import { Leads } from "./pages/Leads";
 import { Analytics } from "./pages/Analytics";
 import { ApiKeys } from "./pages/ApiKeys";
 import { WhatsApp } from "./pages/WhatsApp";
+import { Templates } from "./pages/Templates";
 import { useAuth } from "./store";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const token = useAuth((s) => s.token);
   if (!token) return <Navigate to="/admin/login" replace />;
   return <>{children}</>;
+}
+
+function HomeForRole() {
+  const role = useAuth((s) => s.user?.role);
+  if (role === "agent") return <Navigate to="/admin/inbox" replace />;
+  return <Bots />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -29,7 +36,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           path="/admin"
           element={
             <Protected>
-              <Bots />
+              <HomeForRole />
             </Protected>
           }
         />
@@ -47,6 +54,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/admin/analytics" element={<Protected><Analytics /></Protected>} />
         <Route path="/admin/api-keys" element={<Protected><ApiKeys /></Protected>} />
         <Route path="/admin/whatsapp" element={<Protected><WhatsApp /></Protected>} />
+        <Route path="/admin/templates" element={<Protected><Templates /></Protected>} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     </BrowserRouter>

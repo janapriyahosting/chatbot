@@ -1,10 +1,14 @@
 """Endpoints for the agent console + supervisor inbox."""
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.base import Message as AgentMessage
+from app.agents.groq_agent import GroqAgent
 from app.core.assignment import assign_conversation, current_assignment
 from app.core.db import get_session
 from app.core.security import current_user, require_role
@@ -52,26 +56,23 @@ async def _conv_summary(db: AsyncSession, conv: Conversation) -> ConversationOut
         visitor_id=conv.visitor_id,
         status=conv.status.value,
         created_at=conv.created_at,
+        closed_at=conv.closed_at,
         last_message_at=last.created_at if last else None,
         last_body=last.body if last else None,
         assigned_to_name=assigned_name,
     )
 
 
-@router.get("/conversations", response_model=list[ConversationOut])
-async def list_conversations(
-    scope: str = "mine",
-    user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_session),
-) -> list[ConversationOut]:
-    """scope=mine: my assigned convs; scope=queue: queued (supervisor only);
-    scope=all: both mine and queued (supervisor only)."""
-    if scope in ("queue", "all") and not _is_supervisor(user):
-        raise HTTPException(403, "supervisor only")
+CLOSED_VISIBILITY_HOURS = 24
 
-    q = select(Conversation)
+
+def _scope_filter(scope: str, user: User):
+    """Return (where-clause-list-or-builder, ok_for_role).
+
+    The builder applies extra joins (for scope=mine) and is invoked with
+    a base `select(Conversation)` query — used by both list and counts.
+    """
     if scope == "mine":
-        # Conversations where the latest assignment is me and status is assigned
         sub = (
             select(Assignment.conversation_id, func.max(Assignment.created_at).label("mx"))
             .group_by(Assignment.conversation_id)
@@ -83,25 +84,81 @@ async def list_conversations(
             .where(Assignment.user_id == user.id)
             .subquery()
         )
-        q = q.join(latest, Conversation.id == latest.c.conversation_id).where(
-            Conversation.status == ConversationStatus.assigned
-        )
-    elif scope == "queue":
-        q = q.where(Conversation.status == ConversationStatus.queued)
-    elif scope == "all":
-        # Supervisor overview: queued + assigned
-        q = q.where(
+        def apply(q):
+            return q.join(latest, Conversation.id == latest.c.conversation_id).where(
+                Conversation.status == ConversationStatus.assigned
+            )
+        return apply
+    if scope == "queue":
+        return lambda q: q.where(Conversation.status == ConversationStatus.queued)
+    if scope == "all":
+        return lambda q: q.where(
             or_(
                 Conversation.status == ConversationStatus.queued,
                 Conversation.status == ConversationStatus.assigned,
             )
         )
-    else:
-        raise HTTPException(400, "bad scope")
+    if scope == "closed":
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=CLOSED_VISIBILITY_HOURS)
+        def apply(q):
+            q = q.where(Conversation.status == ConversationStatus.closed)
+            q = q.where(Conversation.closed_at >= cutoff)
+            if not _is_supervisor(user):
+                # Agents only see closed convs they had handled
+                sub = (
+                    select(Assignment.conversation_id, func.max(Assignment.created_at).label("mx"))
+                    .group_by(Assignment.conversation_id)
+                    .subquery()
+                )
+                latest = (
+                    select(Assignment)
+                    .join(sub, (Assignment.conversation_id == sub.c.conversation_id) & (Assignment.created_at == sub.c.mx))
+                    .where(Assignment.user_id == user.id)
+                    .subquery()
+                )
+                q = q.join(latest, Conversation.id == latest.c.conversation_id)
+            return q
+        return apply
+    raise HTTPException(400, "bad scope")
 
-    q = q.order_by(Conversation.created_at.desc()).limit(200)
+
+@router.get("/conversations", response_model=list[ConversationOut])
+async def list_conversations(
+    scope: str = "mine",
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> list[ConversationOut]:
+    """scope=mine | queue | all | closed.
+    queue and all are supervisor-only. closed shows the last 24h."""
+    if scope in ("queue", "all") and not _is_supervisor(user):
+        raise HTTPException(403, "supervisor only")
+
+    apply = _scope_filter(scope, user)
+    q = apply(select(Conversation))
+    if scope == "closed":
+        q = q.order_by(Conversation.closed_at.desc())
+    else:
+        q = q.order_by(Conversation.created_at.desc())
+    q = q.limit(200)
     convs = (await db.execute(q)).scalars().all()
     return [await _conv_summary(db, c) for c in convs]
+
+
+@router.get("/conversations/counts")
+async def conversation_counts(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_session),
+) -> dict[str, int]:
+    """Return counts for each scope the caller can see."""
+    out: dict[str, int] = {}
+    scopes = ["mine", "closed"]
+    if _is_supervisor(user):
+        scopes += ["queue", "all"]
+    for s in scopes:
+        apply = _scope_filter(s, user)
+        q = apply(select(func.count()).select_from(Conversation))
+        out[s] = (await db.execute(q)).scalar_one()
+    return out
 
 
 @router.get("/conversations/{conv_id}", response_model=ConversationDetail)
@@ -137,6 +194,7 @@ async def get_conversation(
         visitor_id=conv.visitor_id,
         status=conv.status.value,
         created_at=conv.created_at,
+        closed_at=conv.closed_at,
         assigned_user_id=assigned_user_id,
         assigned_to_name=assigned_name,
         messages=[
@@ -169,13 +227,29 @@ async def post_message(
         if not assignment or assignment.user_id != user.id:
             raise HTTPException(403, "not your conversation")
 
+    if payload.attachment_url and payload.attachment_kind in ("image", "document"):
+        kind = payload.attachment_kind
+        body = payload.text or payload.attachment_filename or ""
+        msg_payload: dict = {
+            "url": payload.attachment_url,
+            "filename": payload.attachment_filename,
+            "agent_name": user.display_name,
+        }
+        if payload.text:
+            msg_payload["caption"] = payload.text
+    else:
+        if not payload.text:
+            raise HTTPException(400, "empty message")
+        kind = "text"
+        body = payload.text
+        msg_payload = {"text": payload.text, "agent_name": user.display_name}
     msg = Message(
         conversation_id=conv.id,
         sender=MessageSender.agent,
         sender_user_id=user.id,
-        kind="text",
-        body=payload.text,
-        payload={"text": payload.text, "agent_name": user.display_name},
+        kind=kind,
+        body=body,
+        payload=msg_payload,
     )
     db.add(msg)
     await db.commit()
@@ -204,6 +278,7 @@ async def close_conversation(
         if not assignment or assignment.user_id != user.id:
             raise HTTPException(403, "not your conversation")
     conv.status = ConversationStatus.closed
+    conv.closed_at = datetime.now(timezone.utc)
     db.add(
         Message(
             conversation_id=conv.id,
@@ -304,3 +379,47 @@ async def assign(
     await db.commit()
     await db.refresh(conv)
     return await _conv_summary(db, conv)
+
+
+class PolishRequest(BaseModel):
+    text: str
+    tone: str | None = None  # e.g. "friendly", "formal" — optional
+
+
+class PolishResponse(BaseModel):
+    text: str
+
+
+_POLISH_SYSTEM = (
+    "You rewrite a customer-support agent's draft message so it is clear "
+    "and grammatically correct, in plain English. Keep the meaning and "
+    "any factual content (names, dates, numbers, links) exactly the same. "
+    "Reply with ONLY the rewritten message — no preamble, no quotes."
+)
+
+_TONE_HINTS = {
+    "friendly":   "Use a friendly, warm tone.",
+    "formal":     "Use a formal, professional tone.",
+    "concise":    "Be concise — cut filler words while preserving meaning.",
+    "empathetic": "Acknowledge the customer's feelings and use an empathetic tone.",
+    "apologetic": "Open with a sincere apology and use a contrite tone.",
+}
+
+
+@router.post("/polish", response_model=PolishResponse)
+async def polish(
+    payload: PolishRequest, _: User = Depends(current_user)
+) -> PolishResponse:
+    """Rewrite the agent's draft via Groq. Any logged-in user can call this."""
+    draft = (payload.text or "").strip()
+    if not draft:
+        raise HTTPException(400, "text is empty")
+    tone = (payload.tone or "friendly").strip().lower()
+    hint = _TONE_HINTS.get(tone) or f"Use a {tone} tone."
+    system = _POLISH_SYSTEM + " " + hint
+    try:
+        agent = GroqAgent()
+        out = await agent.reply([AgentMessage(role="user", content=draft)], system=system)
+    except Exception as e:
+        raise HTTPException(503, f"polish unavailable: {e}")
+    return PolishResponse(text=(out or draft).strip())

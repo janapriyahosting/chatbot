@@ -17,6 +17,7 @@ from app.api.analytics import router as analytics_router
 from app.api.api_keys import router as api_keys_router
 from app.api.leads import router as leads_router
 from app.api.sites import router as sites_router
+from app.api.templates import router as templates_router
 from app.api.uploads import router as uploads_router
 from app.api.users import router as users_router
 from app.api.widget import router as widget_router
@@ -52,7 +53,12 @@ if _ADMIN_DIST.exists():
     async def _admin_spa(full_path: str = "") -> FileResponse:
         # Serve index.html for any /admin/* path so BrowserRouter can handle
         # client-side routing (e.g., /admin/bots/<uuid>/flows/<uuid>).
-        return FileResponse(_ADMIN_DIST / "index.html")
+        # no-store on index.html so a fresh deploy's hashed bundles are picked
+        # up immediately — the bundles themselves are content-addressed.
+        return FileResponse(
+            _ADMIN_DIST / "index.html",
+            headers={"Cache-Control": "no-store"},
+        )
 
 app.include_router(auth_router)
 app.include_router(whatsapp_router)
@@ -66,6 +72,7 @@ app.include_router(uploads_router)
 app.include_router(leads_router)
 app.include_router(analytics_router)
 app.include_router(api_keys_router)
+app.include_router(templates_router)
 
 _agent_router = AgentRouter()
 

@@ -111,28 +111,58 @@
 
   // Persistent bottom input bar. Hidden by default; shown when the flow is
   // awaiting a text-type input node, or when the conversation is in agent/AI mode.
+  var EMOJIS = ["😀","😄","😅","😂","😍","😊","😎","🤔","😐","😢","😭","😡","👍","👎","👌","🙏","🙌","👋","💪","🎉","❤️","💔","✅","❌","❓","❗","⏳","📅","📞","📍","🏠","🏢","🚀","✨","🔔","📝","💬","🤝","☎️","📷"];
+  var emojiBtn = h("button", { class: "cb-bar-emoji", "aria-label": "Emoji", title: "Insert emoji", type: "button" }, ["😊"]);
+  var emojiPanel = h("div", { class: "cb-emoji-panel", style: "display:none" });
+  EMOJIS.forEach(function (e) {
+    var b = h("button", { class: "cb-emoji-cell", type: "button", "aria-label": e }, [e]);
+    b.addEventListener("click", function () {
+      var start = barInput.selectionStart, end = barInput.selectionEnd;
+      var v = barInput.value || "";
+      barInput.value = (start != null ? v.slice(0, start) + e + v.slice(end) : v + e);
+      emojiPanel.style.display = "none";
+      try { barInput.focus(); barInput.selectionStart = barInput.selectionEnd = (start || v.length) + e.length; } catch (err) {}
+    });
+    emojiPanel.appendChild(b);
+  });
+  emojiBtn.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    emojiPanel.style.display = emojiPanel.style.display === "none" ? "grid" : "none";
+  });
+  document.addEventListener("click", function (ev) {
+    if (emojiPanel.style.display !== "none" && !emojiPanel.contains(ev.target) && ev.target !== emojiBtn) {
+      emojiPanel.style.display = "none";
+    }
+  });
   var barInput = h("input", { class: "cb-bar-input", placeholder: "Type here…" });
   var barBtn = h("button", { class: "cb-bar-send", "aria-label": "Send" }, ["➤"]);
-  var bottomBar = h("div", { class: "cb-bar" }, [barInput, barBtn]);
+  var bottomBar = h("div", { class: "cb-bar" }, [emojiBtn, emojiPanel, barInput, barBtn]);
   bottomBar.style.display = "none";
   var currentSend = null;
   // Remembered opts so we can re-show the bar on validation errors (422)
   var _lastBarOpts = null;
   var _lastBarValue = null;
   function showInputBar(opts) {
+    // Preserve the visitor's in-progress text if we're re-showing the bar
+    // for the same mode (e.g. polling re-enters ensureAgentInput every 2s
+    // and would otherwise wipe what they're typing).
+    var sameMode = bottomBar.style.display === "flex"
+      && _lastBarOpts && opts.mode && _lastBarOpts.mode === opts.mode;
     _lastBarOpts = opts;
     bottomBar.style.display = "flex";
     barInput.type = opts.type || "text";
     barInput.placeholder = opts.placeholder || "Type here…";
-    barInput.value = "";
+    if (!sameMode) barInput.value = "";
     barInput.disabled = false;
     barBtn.disabled = false;
     currentSend = opts.onSend;
-    // Body just shrank (bar appeared). Re-scroll so the newest message stays visible.
-    requestAnimationFrame(function () {
-      body.scrollTop = body.scrollHeight;
-      try { barInput.focus(); } catch (e) {}
-    });
+    if (!sameMode) {
+      // Body just shrank (bar appeared). Re-scroll so the newest message stays visible.
+      requestAnimationFrame(function () {
+        body.scrollTop = body.scrollHeight;
+        try { barInput.focus(); } catch (e) {}
+      });
+    }
   }
   function hideInputBar() {
     bottomBar.style.display = "none";
@@ -152,10 +182,11 @@
   ]);
   var headerText = h("div", { class: "cb-header-text" }, [headerTitle, headerStatus]);
   var refreshBtn = h("button", { class: "cb-icon-btn", title: "Start a new chat", "aria-label": "Restart" }, ["⟳"]);
+  var endBtn = h("button", { class: "cb-icon-btn", title: "End chat", "aria-label": "End chat" }, ["⏹"]);
   var minBtn = h("button", { class: "cb-icon-btn", title: "Minimise", "aria-label": "Close", onclick: toggle }, ["⌄"]);
   var header = h("div", { class: "cb-header" }, [
     h("div", { class: "cb-header-left" }, [headerAvatar, headerText]),
-    h("div", { class: "cb-header-right" }, [refreshBtn, minBtn]),
+    h("div", { class: "cb-header-right" }, [endBtn, refreshBtn, minBtn]),
   ]);
   var body = h("div", { class: "cb-body" });
   var footer = h("div", { class: "cb-footer", text: "Powered by ChatBot" });
@@ -164,6 +195,18 @@
   var launcher = h("button", { class: "cb-launcher", text: "💬", onclick: toggle });
   var root = h("div", { class: "cb-root", id: "cb-root-v1" }, [launcher, panel]);
   document.body.appendChild(root);
+
+  endBtn.addEventListener("click", async function () {
+    if (!state.conversationId) return;
+    if (!confirm("End this chat? You can start a new one with the ⟳ button.")) return;
+    try {
+      await fetch(API_BASE + "/widget/close", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversation_id: state.conversationId })
+      });
+    } catch (e) { /* swallow — server-side close still happens via timeout */ }
+    handleStatusChange("closed");
+  });
 
   refreshBtn.addEventListener("click", function () {
     if (!confirm("Start a new chat? Your current conversation will be closed.")) return;
@@ -581,6 +624,7 @@
   function ensureAgentInput() {
     // Reuse the unified bottom bar for agent / AI chat.
     showInputBar({
+      mode: "agent",
       type: "text",
       placeholder: "Type a message…",
       onSend: function () {
@@ -622,8 +666,16 @@
       handleStatusChange(data.status);
       (data.messages || []).forEach(function (m) {
         state.lastMsgId = m.id;
-        if ((m.sender === "agent" || m.sender === "bot") && m.kind === "text") {
-          addMessage("bot", bubbleWithMarkdown(m.body || ""));
+        if (m.sender === "agent" || m.sender === "bot") {
+          if (m.kind === "text") {
+            addMessage("bot", bubbleWithMarkdown(m.body || ""));
+          } else if (m.kind === "image" || m.kind === "document") {
+            var p = m.payload || {};
+            var cfg = m.kind === "image"
+              ? { url: p.url, caption: p.caption }
+              : { url: p.url, original_filename: p.filename, description: p.caption };
+            renderOutput({ kind: m.kind, config: cfg });
+          }
         } else if (m.sender === "system") {
           addSystemMsg(m.body || "");
         }

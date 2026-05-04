@@ -1,22 +1,41 @@
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
+import { api } from "./api";
 import { useAuth } from "./store";
 
 const NAV: { to: string; label: string; icon: string; supervisorOnly?: boolean }[] = [
   { to: "/admin/inbox", label: "Live chats", icon: "💬" },
-  { to: "/admin", label: "Bots", icon: "🤖" },
-  { to: "/admin/whatsapp", label: "WhatsApp", icon: "🟢" },
+  { to: "/admin", label: "Bots", icon: "🤖", supervisorOnly: true },
+  { to: "/admin/whatsapp", label: "WhatsApp", icon: "🟢", supervisorOnly: true },
   { to: "/admin/leads", label: "Leads", icon: "👥", supervisorOnly: true },
   { to: "/admin/analytics", label: "Analytics", icon: "📈", supervisorOnly: true },
   { to: "/admin/users", label: "Users", icon: "🧑‍💼", supervisorOnly: true },
   { to: "/admin/api-keys", label: "API keys", icon: "🔑", supervisorOnly: true },
+  { to: "/admin/templates", label: "Templates", icon: "📋", supervisorOnly: true },
 ];
 
 export function Layout({ children, wide }: { children: ReactNode; wide?: boolean }) {
-  const { user, clear } = useAuth();
+  const { user, clear, setUser } = useAuth();
   const nav = useNavigate();
   const isSup = user?.role === "admin" || user?.role === "supervisor";
   const isAdmin = user?.role === "admin";
+  const isAgent = user?.role === "agent";
+  const [busy, setBusy] = useState(false);
+
+  const toggleAvailable = async () => {
+    if (!user || busy) return;
+    setBusy(true);
+    try {
+      const next = !user.is_available;
+      await api.updateUser(user.id, { is_available: next });
+      setUser({ is_available: next });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -50,6 +69,24 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
         <div style={{ padding: 12, borderTop: "1px solid #1f2937", fontSize: 12 }}>
           <div style={{ fontWeight: 600 }}>{user?.display_name || user?.email}</div>
           <div style={{ color: "#9ca3af", marginBottom: 6 }}>{user?.role}</div>
+          {isAgent && (
+            <button
+              onClick={toggleAvailable}
+              disabled={busy}
+              style={{
+                width: "100%", padding: "6px 8px", fontSize: 12, marginBottom: 6,
+                borderRadius: 4, border: "none", cursor: busy ? "default" : "pointer",
+                background: user?.is_available ? "#10b981" : "#374151",
+                color: "#fff", fontWeight: 600,
+              }}
+              title="Round-robin only assigns chats to available agents"
+            >
+              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%",
+                background: user?.is_available ? "#fff" : "#9ca3af", marginRight: 6,
+              }} />
+              {user?.is_available ? "Available" : "Unavailable"}
+            </button>
+          )}
           <button className="btn ghost" style={{ width: "100%", padding: "6px 8px", fontSize: 12 }}
             onClick={() => { clear(); nav("/admin/login"); }}>
             Sign out

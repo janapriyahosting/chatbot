@@ -11,6 +11,7 @@ class ConversationOut(BaseModel):
     visitor_id: str
     status: str
     created_at: datetime
+    closed_at: datetime | None = None
     last_message_at: datetime | None = None
     last_body: str | None = None
     assigned_to_name: str | None = None
@@ -31,13 +32,19 @@ class ConversationDetail(BaseModel):
     visitor_id: str
     status: str
     created_at: datetime
+    closed_at: datetime | None = None
     assigned_user_id: uuid.UUID | None = None
     assigned_to_name: str | None = None
     messages: list[MessageOut]
 
 
 class AgentMessageRequest(BaseModel):
-    text: str
+    text: str = ""
+    # Optional attachment — when set, the message is rendered as image/document
+    # and `text` is treated as an optional caption.
+    attachment_url: str | None = None
+    attachment_kind: str | None = None  # "image" | "document"
+    attachment_filename: str | None = None
 
 
 class AssignRequest(BaseModel):

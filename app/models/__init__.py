@@ -4,6 +4,7 @@ from app.models.conversation import Assignment, Conversation, Message
 from app.models.flow import Flow, FlowVersion
 from app.models.lead import Lead, LeadUtm
 from app.models.site import Site
+from app.models.template import MessageTemplate
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "Lead",
     "LeadUtm",
     "Message",
+    "MessageTemplate",
     "Site",
     "User",
     "UserRole",
