@@ -160,6 +160,22 @@ async def _handle_otp_side_effects(
     return extras
 
 
+@router.get("/persona/{bot_key}")
+async def get_persona(bot_key: str, db: AsyncSession = Depends(get_session)) -> dict:
+    """Public endpoint — lets the widget show the bot's avatar/name/branding
+    on the launcher before the visitor opens the chat (no session yet)."""
+    bot_result = await db.execute(select(Bot).where(Bot.public_key == bot_key))
+    bot = bot_result.scalars().first()
+    if not bot or not bot.is_active:
+        raise HTTPException(status_code=404, detail="bot not found")
+    return {
+        "name": bot.persona_name,
+        "avatar": bot.persona_avatar,
+        "footer_text": bot.widget_footer_text,
+        "theme_color": bot.theme_color,
+    }
+
+
 @router.post("/session", response_model=StepResponse)
 async def start_session(
     payload: SessionStart,
@@ -278,7 +294,12 @@ async def start_session(
         awaiting=result.awaiting,
         ended=result.ended,
         status=conv.status.value,
-        persona={"name": bot_row.persona_name, "avatar": bot_row.persona_avatar} if bot_row else None,
+        persona={
+            "name": bot_row.persona_name,
+            "avatar": bot_row.persona_avatar,
+            "footer_text": bot_row.widget_footer_text,
+            "theme_color": bot_row.theme_color,
+        } if bot_row else None,
     )
 
 

@@ -32,6 +32,8 @@ class BotUpdate(BaseModel):
     auto_assign: bool | None = None
     persona_name: str | None = Field(default=None, max_length=60)
     persona_avatar: str | None = Field(default=None, max_length=512)
+    widget_footer_text: str | None = Field(default=None, max_length=120)
+    theme_color: str | None = Field(default=None, max_length=16)
 
 
 class BotOut(BaseModel):
@@ -46,4 +48,6 @@ class BotOut(BaseModel):
     auto_assign: bool
     persona_name: str | None = None
     persona_avatar: str | None = None
+    widget_footer_text: str | None = None
+    theme_color: str | None = None
     created_at: datetime

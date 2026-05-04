@@ -8,6 +8,7 @@ type Bot = {
   id: string; name: string; channel: string; public_key: string;
   is_active: boolean; auto_assign: boolean;
   persona_name?: string | null; persona_avatar?: string | null;
+  widget_footer_text?: string | null; theme_color?: string | null;
 };
 
 export function Bots() {
@@ -120,6 +121,8 @@ function BotCard({ bot, onOpen, onChanged }: { bot: Bot; onOpen: (flowId: string
   const [editing, setEditing] = useState(false);
   const [personaName, setPersonaName] = useState(bot.persona_name || "");
   const [personaAvatar, setPersonaAvatar] = useState(bot.persona_avatar || "");
+  const [footerText, setFooterText] = useState(bot.widget_footer_text || "");
+  const [themeColor, setThemeColor] = useState(bot.theme_color || "");
   useEffect(() => { api.listFlows(bot.id).then(setFlows).catch(() => {}); }, [bot.id]);
   const flow = flows[0];
 
@@ -132,7 +135,15 @@ function BotCard({ bot, onOpen, onChanged }: { bot: Bot; onOpen: (flowId: string
   };
   const toggleAuto = async (v: boolean) => { setAuto(v); try { await patch({ auto_assign: v }); } catch {} };
   const toggleActive = async (v: boolean) => { setActive(v); try { await patch({ is_active: v }); } catch {} };
-  const savePersona = async () => { await patch({ persona_name: personaName || null, persona_avatar: personaAvatar || null }); setEditing(false); };
+  const savePersona = async () => {
+    await patch({
+      persona_name: personaName || null,
+      persona_avatar: personaAvatar || null,
+      widget_footer_text: footerText || null,
+      theme_color: themeColor || null,
+    });
+    setEditing(false);
+  };
   const del = async () => {
     const ok = window.confirm(
       `Delete bot "${bot.name}"?\n\nThis permanently deletes its flow(s), all conversations, and all captured leads. Cannot be undone.`
@@ -204,7 +215,33 @@ function BotCard({ bot, onOpen, onChanged }: { bot: Bot; onOpen: (flowId: string
               )}
             </div>
           </div>
-          <div className="row" style={{ marginTop: 8 }}>
+          <label style={{ marginTop: 12 }}>Footer text (shown at the bottom of the widget)</label>
+          <input
+            value={footerText}
+            onChange={(e) => setFooterText(e.target.value)}
+            placeholder="Powered by Janapriya Upscale"
+            maxLength={120}
+          />
+          <label style={{ marginTop: 8 }}>Header color</label>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            <input
+              type="color"
+              value={themeColor || "#2563eb"}
+              onChange={(e) => setThemeColor(e.target.value)}
+              style={{ width: 44, height: 32, padding: 0, border: "1px solid #d1d5db", borderRadius: 4 }}
+            />
+            <input
+              value={themeColor}
+              onChange={(e) => setThemeColor(e.target.value)}
+              placeholder="#2563eb (leave blank for default)"
+              style={{ flex: 1 }}
+            />
+            {themeColor && (
+              <button type="button" className="btn ghost" style={{ padding: "2px 8px", fontSize: 11 }}
+                onClick={() => setThemeColor("")}>Clear</button>
+            )}
+          </div>
+          <div className="row" style={{ marginTop: 12 }}>
             <div className="spacer" />
             <button className="btn" onClick={savePersona}>Save</button>
           </div>

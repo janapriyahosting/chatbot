@@ -719,8 +719,24 @@
       headerAvatar.src = url; headerAvatar.style.display = "inline-block";
       launcherAvatar.src = url; launcherAvatar.style.display = "block";
       launcherIcon.style.display = "none";
+      launcher.classList.add("has-avatar");
+    }
+    if (p.theme_color) {
+      header.style.background = p.theme_color;
+    }
+    if (p.footer_text) {
+      footer.textContent = p.footer_text;
     }
   }
+
+  // Pre-fetch persona at script load so the launcher shows the bot's avatar
+  // before the visitor opens the panel (no session is created yet).
+  (function preloadPersona() {
+    fetch(API_BASE + "/widget/persona/" + encodeURIComponent(BOT_KEY))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (p) { if (p) applyPersona(p); })
+      .catch(function () { /* offline / 404 — fall back to emoji */ });
+  })();
 
   async function renderOutputsStaggered(outs, opts) {
     var stagger = !opts || opts.stagger !== false;

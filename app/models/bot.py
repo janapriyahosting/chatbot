@@ -38,3 +38,9 @@ class Bot(Base, UUIDPk, Timestamps):
     # Persona — shown in the widget header. Makes the chat feel human.
     persona_name: Mapped[str | None] = mapped_column(String(60), nullable=True)
     persona_avatar: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Footer text shown at the bottom of the widget panel. If null, the
+    # widget falls back to "Powered by ChatBot".
+    widget_footer_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Hex color for the widget header background. If null, the widget uses
+    # the default brand blue.
+    theme_color: Mapped[str | None] = mapped_column(String(16), nullable=True)
