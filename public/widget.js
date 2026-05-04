@@ -192,7 +192,9 @@
   var footer = h("div", { class: "cb-footer", text: "Powered by ChatBot" });
   panel.appendChild(header); panel.appendChild(body); panel.appendChild(bottomBar); panel.appendChild(footer);
 
-  var launcher = h("button", { class: "cb-launcher", text: "💬", onclick: toggle });
+  var launcherAvatar = h("img", { class: "cb-launcher-avatar", alt: "", style: "display:none" });
+  var launcherIcon = h("span", { class: "cb-launcher-icon", text: "💬" });
+  var launcher = h("button", { class: "cb-launcher", "aria-label": "Open chat", onclick: toggle }, [launcherAvatar, launcherIcon]);
   var root = h("div", { class: "cb-root", id: "cb-root-v1" }, [launcher, panel]);
   document.body.appendChild(root);
 
@@ -390,16 +392,34 @@
       sWrap.appendChild(confirmBtn);
       addMessage("bot", sWrap);
         } else if (kind === "carousel") {
-      var carousel = h("div", { class: "cb-carousel" },
+      var track = h("div", { class: "cb-carousel-track" },
         (cfg.cards || []).map(function (c) {
+          var actions = (c.buttons || []).map(function (btn) {
+            return h("button", {
+              class: "cb-card-btn",
+              text: btn.label || btn.value,
+              onclick: function () { onButton(btn); }
+            });
+          });
           return h("div", { class: "cb-card" }, [
-            c.image ? h("img", { src: absUrl(c.image) }) : null,
+            c.image ? h("div", { class: "cb-card-image" }, [h("img", { src: absUrl(c.image), alt: c.title || "" })]) : null,
             h("div", { class: "cb-card-body" }, [
-              h("div", { class: "cb-card-title", text: c.title || "" }),
-              c.subtitle ? h("div", { text: c.subtitle }) : null
+              c.title ? h("div", { class: "cb-card-title", text: c.title }) : null,
+              c.subtitle ? h("div", { class: "cb-card-subtitle", text: c.subtitle }) : null,
+              actions.length ? h("div", { class: "cb-card-actions" }, actions) : null
             ])
           ]);
         }));
+      var prev = h("button", { class: "cb-carousel-nav cb-carousel-prev", "aria-label": "Previous", text: "‹" });
+      var next = h("button", { class: "cb-carousel-nav cb-carousel-next", "aria-label": "Next", text: "›" });
+      var carousel = h("div", { class: "cb-carousel" }, [track, prev, next]);
+      var scrollByCard = function (dir) {
+        var first = track.querySelector(".cb-card");
+        var step = first ? first.getBoundingClientRect().width + 10 : 200;
+        track.scrollBy({ left: dir * step, behavior: "smooth" });
+      };
+      prev.addEventListener("click", function () { scrollByCard(-1); });
+      next.addEventListener("click", function () { scrollByCard(1); });
       addMessage("bot", carousel);
     } else if (kind === "buttons") {
       addMessage("bot", h("div", { class: "cb-bubble", text: cfg.body || "" }));
@@ -694,7 +714,12 @@
     if (!p) return;
     state.persona = p;
     if (p.name) headerTitle.textContent = p.name;
-    if (p.avatar) { headerAvatar.src = absUrl(p.avatar); headerAvatar.style.display = "inline-block"; }
+    if (p.avatar) {
+      var url = absUrl(p.avatar);
+      headerAvatar.src = url; headerAvatar.style.display = "inline-block";
+      launcherAvatar.src = url; launcherAvatar.style.display = "block";
+      launcherIcon.style.display = "none";
+    }
   }
 
   async function renderOutputsStaggered(outs, opts) {
