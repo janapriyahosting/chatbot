@@ -55,5 +55,25 @@ class Settings(BaseSettings):
         "You are a concise, helpful assistant. Prefer short answers unless asked for detail."
     )
 
+    # --- SMTP (email notifications) ---
+    # Empty `smtp_host` disables outbound email entirely (no-op).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True   # STARTTLS on connect (port 587)
+    smtp_use_ssl: bool = False  # implicit TLS (port 465). Only one of these.
+
+    # Public-facing base URL used in email deeplinks (e.g. assignment notifications).
+    public_base_url: str = "https://chatbot.janapriyahomes.com"
+
+    # --- Microsoft 365 / Entra ID OAuth (strict allowlist) ---
+    # Empty values disable the "Sign in with Microsoft" button.
+    o365_tenant_id: str = ""
+    o365_client_id: str = ""
+    o365_client_secret: str = ""
+    o365_redirect_path: str = "/auth/o365/callback"
+
 
 settings = Settings()

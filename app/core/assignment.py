@@ -1,10 +1,13 @@
 """Conversation assignment (round-robin + manual)."""
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.email_sender import send_email
 from app.core.working_hours import is_office_open
 from app.models.conversation import (
     Assignment,
@@ -75,7 +78,26 @@ async def assign_conversation(
             payload={"event": "assigned", "user_id": str(agent.id)},
         )
     )
+    # Fire the email out-of-band so a flaky mail server can't slow down the
+    # assignment flow. Failures are swallowed inside send_email.
+    asyncio.create_task(_email_agent(agent, conv))
     return assignment
+
+
+async def _email_agent(agent: User, conv: Conversation) -> None:
+    deeplink = f"{settings.public_base_url.rstrip('/')}/admin/inbox?conv={conv.id}"
+    body_text = (
+        f"Hi {agent.display_name},\n\n"
+        f"A new chat has been assigned to you. Open it here:\n{deeplink}\n\n"
+        f"Visitor: {conv.visitor_id}\n"
+    )
+    body_html = (
+        f"<p>Hi {agent.display_name},</p>"
+        f"<p>A new chat has been assigned to you.</p>"
+        f"<p><a href=\"{deeplink}\">Open the conversation</a></p>"
+        f"<p style=\"color:#6b7280;font-size:12px\">Visitor: {conv.visitor_id}</p>"
+    )
+    await send_email(agent.email, "New chat assigned to you", body_text, body_html)
 
 
 async def current_assignment(db: AsyncSession, conv_id: uuid.UUID) -> Assignment | None:

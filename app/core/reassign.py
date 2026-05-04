@@ -15,7 +15,9 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import SessionLocal
+from app.core.email_sender import send_email
 from app.core.working_hours import is_office_open
 from app.models.conversation import (
     Assignment,
@@ -85,6 +87,14 @@ async def _reassign_one(db: AsyncSession, conv: Conversation) -> bool:
             payload={"event": "reassigned", "user_id": str(next_agent.id), "reason": "idle"},
         )
     )
+    # Notify the new assignee
+    deeplink = f"{settings.public_base_url.rstrip('/')}/admin/inbox?conv={conv.id}"
+    asyncio.create_task(send_email(
+        next_agent.email,
+        "Chat reassigned to you",
+        f"Hi {next_agent.display_name},\n\nA chat has been reassigned to you "
+        f"(previous agent was idle). Open it here:\n{deeplink}\n\nVisitor: {conv.visitor_id}\n",
+    ))
     return True
 
 

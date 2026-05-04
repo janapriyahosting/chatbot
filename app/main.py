@@ -19,6 +19,7 @@ from app.api.flows import router as flows_router
 from app.api.analytics import router as analytics_router
 from app.api.api_keys import router as api_keys_router
 from app.api.leads import router as leads_router
+from app.api.oauth_o365 import router as o365_router
 from app.api.settings import router as settings_router
 from app.api.sites import router as sites_router
 from app.api.templates import router as templates_router
@@ -92,6 +93,7 @@ app.include_router(analytics_router)
 app.include_router(api_keys_router)
 app.include_router(templates_router)
 app.include_router(settings_router)
+app.include_router(o365_router)
 
 _agent_router = AgentRouter()
 

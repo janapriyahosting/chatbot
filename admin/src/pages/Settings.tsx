@@ -129,6 +129,209 @@ export function Settings() {
           )}
         </div>
       )}
+
+      {role === "admin" && <SmtpCard />}
+      {role === "admin" && <O365Card />}
     </Layout>
+  );
+}
+
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: any }) {
+  return (
+    <div style={{ marginTop: 28 }}>
+      <h3 style={{ margin: 0, fontSize: 18 }}>{title}</h3>
+      {subtitle && <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>{subtitle}</div>}
+      <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 16, marginTop: 8 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SmtpCard() {
+  const [cfg, setCfg] = useState<any>(null);
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { api.getSmtp().then(setCfg).catch((e) => setErr(e.message)); }, []);
+
+  if (!cfg) return null;
+
+  const update = (k: string, v: any) => setCfg({ ...cfg, [k]: v });
+
+  const save = async () => {
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      const body = {
+        host: cfg.host || "",
+        port: Number(cfg.port) || 587,
+        username: cfg.username || "",
+        from_addr: cfg.from_addr || "",
+        use_tls: !!cfg.use_tls,
+        use_ssl: !!cfg.use_ssl,
+        password: pw || "",  // empty means "keep existing"
+      };
+      await api.putSmtp(body);
+      setMsg("Saved.");
+      setPw("");
+      api.getSmtp().then(setCfg);
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const clearPw = async () => {
+    if (!confirm("Clear the saved SMTP password?")) return;
+    await api.putSmtp({ ...cfg, password: "__clear__" });
+    api.getSmtp().then(setCfg);
+  };
+
+  return (
+    <Section
+      title="Email (SMTP)"
+      subtitle="Used for assignment notifications. Leave host blank to disable email entirely."
+    >
+      {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
+      {msg && <div style={{ background: "#d1fae5", color: "#065f46", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>{msg}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div>
+          <label>Host</label>
+          <input value={cfg.host || ""} onChange={(e) => update("host", e.target.value)} placeholder="smtp.janapriyahomes.com" />
+        </div>
+        <div>
+          <label>Port</label>
+          <input type="number" value={cfg.port || 587} onChange={(e) => update("port", e.target.value)} />
+        </div>
+        <div>
+          <label>Username</label>
+          <input value={cfg.username || ""} onChange={(e) => update("username", e.target.value)} placeholder="alerts@janapriyahomes.com" />
+        </div>
+        <div>
+          <label>From address</label>
+          <input value={cfg.from_addr || ""} onChange={(e) => update("from_addr", e.target.value)} placeholder="alerts@janapriyahomes.com" />
+        </div>
+        <div style={{ gridColumn: "1 / span 2" }}>
+          <label>
+            Password
+            {cfg.password_set && <span style={{ marginLeft: 8, fontSize: 11, color: "#059669" }}>● set</span>}
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              placeholder={cfg.password_set ? "Leave blank to keep existing" : "Enter password"}
+              style={{ flex: 1 }}
+            />
+            {cfg.password_set && (
+              <button type="button" className="btn ghost" onClick={clearPw}>Clear</button>
+            )}
+          </div>
+        </div>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <input type="checkbox" checked={!!cfg.use_tls} onChange={(e) => update("use_tls", e.target.checked)} />
+          STARTTLS (port 587)
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+          <input type="checkbox" checked={!!cfg.use_ssl} onChange={(e) => update("use_ssl", e.target.checked)} />
+          Implicit TLS / SSL (port 465)
+        </label>
+      </div>
+      <div style={{ display: "flex", marginTop: 12 }}>
+        <div style={{ flex: 1 }} />
+        <button className="btn" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </Section>
+  );
+}
+
+function O365Card() {
+  const [cfg, setCfg] = useState<any>(null);
+  const [secret, setSecret] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { api.getO365().then(setCfg).catch((e) => setErr(e.message)); }, []);
+
+  if (!cfg) return null;
+
+  const update = (k: string, v: any) => setCfg({ ...cfg, [k]: v });
+
+  const save = async () => {
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      const body = {
+        tenant_id: cfg.tenant_id || "",
+        client_id: cfg.client_id || "",
+        redirect_path: cfg.redirect_path || "/auth/o365/callback",
+        client_secret: secret || "",
+      };
+      await api.putO365(body);
+      setMsg("Saved.");
+      setSecret("");
+      api.getO365().then(setCfg);
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const clearSecret = async () => {
+    if (!confirm("Clear the saved client secret?")) return;
+    await api.putO365({ ...cfg, client_secret: "__clear__" });
+    api.getO365().then(setCfg);
+  };
+
+  return (
+    <Section
+      title="Microsoft 365 sign-in"
+      subtitle={
+        "Strict allowlist — visitors must already be registered in /admin/users. " +
+        "Set up an Entra app at https://entra.microsoft.com → App registrations."
+      }
+    >
+      {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
+      {msg && <div style={{ background: "#d1fae5", color: "#065f46", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>{msg}</div>}
+      <div style={{ display: "grid", gap: 8 }}>
+        <div>
+          <label>Tenant ID</label>
+          <input value={cfg.tenant_id || ""} onChange={(e) => update("tenant_id", e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" />
+        </div>
+        <div>
+          <label>Client (application) ID</label>
+          <input value={cfg.client_id || ""} onChange={(e) => update("client_id", e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" />
+        </div>
+        <div>
+          <label>
+            Client secret
+            {cfg.secret_set && <span style={{ marginLeft: 8, fontSize: 11, color: "#059669" }}>● set</span>}
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="password"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder={cfg.secret_set ? "Leave blank to keep existing" : "Paste secret value"}
+              style={{ flex: 1 }}
+            />
+            {cfg.secret_set && (
+              <button type="button" className="btn ghost" onClick={clearSecret}>Clear</button>
+            )}
+          </div>
+        </div>
+        <div>
+          <label>Redirect path</label>
+          <input value={cfg.redirect_path || "/auth/o365/callback"} onChange={(e) => update("redirect_path", e.target.value)} />
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+            Full redirect URI to register in Entra:
+            {" "}<code>{(window.location.origin || "https://chatbot.janapriyahomes.com") + (cfg.redirect_path || "/auth/o365/callback")}</code>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", marginTop: 12 }}>
+        <div style={{ flex: 1 }} />
+        <button className="btn" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+      </div>
+    </Section>
   );
 }

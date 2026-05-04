@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { Layout } from "../Layout";
 import { useAuth } from "../store";
@@ -102,6 +103,13 @@ export function Inbox() {
   const msgEnd = useRef<HTMLDivElement>(null);
   // Track which "mine" conv IDs we've already seen so we only notify on new ones
   const seenMineIds = useRef<Set<string> | null>(null);
+
+  // Deep-link from email: /admin/inbox?conv=<uuid> auto-selects that conv.
+  const [params] = useSearchParams();
+  useEffect(() => {
+    const c = params.get("conv");
+    if (c) setSelected(c);
+  }, [params]);
 
   useEffect(() => {
     // Ask for notification permission once when the agent first opens the inbox.

@@ -77,6 +77,14 @@ export const api = {
     req<{ schedule: any }>("GET", "/settings/working-hours"),
   putWorkingHours: (schedule: any) =>
     req<{ schedule: any }>("PUT", "/settings/working-hours", { schedule }),
+  getSmtp: () =>
+    req<any>("GET", "/settings/smtp"),
+  putSmtp: (body: any) =>
+    req<any>("PUT", "/settings/smtp", body),
+  getO365: () =>
+    req<any>("GET", "/settings/o365"),
+  putO365: (body: any) =>
+    req<any>("PUT", "/settings/o365", body),
   polishMessage: (text: string, tone?: string) =>
     req<{ text: string }>("POST", "/agent/polish", { text, tone }),
   assignConversation: (id: string, userId: string | null) =>
