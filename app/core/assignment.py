@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.working_hours import is_office_open
 from app.models.conversation import (
     Assignment,
     AssignmentMode,
@@ -17,7 +18,10 @@ from app.models.user import User, UserRole
 
 
 async def _pick_round_robin_agent(db: AsyncSession) -> User | None:
-    """Pick the available agent with the oldest last_assigned_at (NULLS first)."""
+    """Pick the LRU available agent. If the office is currently outside its
+    configured working hours, returns None (the conversation will queue)."""
+    if not await is_office_open(db):
+        return None
     result = await db.execute(
         select(User)
         .where(User.role == UserRole.agent, User.is_active.is_(True), User.is_available.is_(True))

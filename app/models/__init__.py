@@ -1,4 +1,5 @@
 from app.models.api_key import ApiKey
+from app.models.app_setting import AppSetting
 from app.models.bot import Bot
 from app.models.conversation import Assignment, Conversation, Message
 from app.models.flow import Flow, FlowVersion

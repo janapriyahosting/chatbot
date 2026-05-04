@@ -112,6 +112,7 @@ async def _run_node(node: dict, ctx: dict[str, Any]) -> NodeResult:
         ctx["pending_handoff"] = {
             "ai_fallback": bool(cfg.get("ai_fallback")),
             "ai_system_prompt": cfg.get("ai_system_prompt") or "",
+            "unavailable_message": cfg.get("unavailable_message") or "",
         }
         intro = (cfg.get("body") or "Connecting you to our team…").strip()
         outputs = [{"kind": "text", "config": {"body": intro}}] if intro else []

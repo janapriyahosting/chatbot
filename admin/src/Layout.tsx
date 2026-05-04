@@ -13,6 +13,7 @@ const NAV: { to: string; label: string; icon: string; supervisorOnly?: boolean }
   { to: "/admin/users", label: "Users", icon: "🧑‍💼", supervisorOnly: true },
   { to: "/admin/api-keys", label: "API keys", icon: "🔑", supervisorOnly: true },
   { to: "/admin/templates", label: "Templates", icon: "📋", supervisorOnly: true },
+  { to: "/admin/settings", label: "Settings", icon: "⚙️", supervisorOnly: true },
 ];
 
 export function Layout({ children, wide }: { children: ReactNode; wide?: boolean }) {

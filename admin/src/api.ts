@@ -73,6 +73,10 @@ export const api = {
     req<any>("PATCH", `/templates/${id}`, body),
   deleteTemplate: (id: string) =>
     req<any>("DELETE", `/templates/${id}`),
+  getWorkingHours: () =>
+    req<{ schedule: any }>("GET", "/settings/working-hours"),
+  putWorkingHours: (schedule: any) =>
+    req<{ schedule: any }>("PUT", "/settings/working-hours", { schedule }),
   polishMessage: (text: string, tone?: string) =>
     req<{ text: string }>("POST", "/agent/polish", { text, tone }),
   assignConversation: (id: string, userId: string | null) =>

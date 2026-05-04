@@ -271,6 +271,19 @@ async def start_session(
                 )
             else:
                 conv.status = ConversationStatus.queued
+                msg = (handoff.get("unavailable_message") or "").strip()
+                if msg:
+                    bubble = {"kind": "text", "config": {"body": msg}}
+                    result.outputs.append(bubble)
+                    db.add(
+                        Message(
+                            conversation_id=conv.id,
+                            sender=MessageSender.bot,
+                            kind="text",
+                            body=msg,
+                            payload=bubble,
+                        )
+                    )
     elif takeover:
         conv.status = ConversationStatus.ai
         conv.context["ai_system_prompt"] = takeover.get("system_prompt") or (
@@ -647,6 +660,19 @@ async def reply(
                 )
             else:
                 conv.status = ConversationStatus.queued
+                msg = (handoff.get("unavailable_message") or "").strip()
+                if msg:
+                    bubble = {"kind": "text", "config": {"body": msg}}
+                    result.outputs.append(bubble)
+                    db.add(
+                        Message(
+                            conversation_id=conv.id,
+                            sender=MessageSender.bot,
+                            kind="text",
+                            body=msg,
+                            payload=bubble,
+                        )
+                    )
     elif takeover:
         conv.status = ConversationStatus.ai
         conv.context["ai_system_prompt"] = takeover.get("system_prompt") or (

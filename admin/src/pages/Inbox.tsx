@@ -30,6 +30,48 @@ function relativeTime(s?: string | null): string {
   return new Date(t).toLocaleString([], { hour: "numeric", minute: "2-digit" });
 }
 
+// --- Audio cue (no asset; synthesized via Web Audio API) ---
+let _audioCtx: AudioContext | null = null;
+function playDing() {
+  try {
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return;
+    if (!_audioCtx) _audioCtx = new Ctx();
+    const ctx = _audioCtx!;
+    if (ctx.state === "suspended") ctx.resume();
+    // Two-tone ding: 880 Hz then 1320 Hz, gently faded.
+    const now = ctx.currentTime;
+    [
+      { f: 880, t: 0 },
+      { f: 1320, t: 0.12 },
+    ].forEach(({ f, t }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = f;
+      osc.type = "sine";
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0, now + t);
+      gain.gain.linearRampToValueAtTime(0.18, now + t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + t + 0.18);
+      osc.start(now + t);
+      osc.stop(now + t + 0.2);
+    });
+  } catch { /* ignore — sound is best-effort */ }
+}
+
+function notifyAssigned(convId: string) {
+  playDing();
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try {
+      new Notification("New chat assigned", {
+        body: "A visitor is waiting for you.",
+        tag: "chat-" + convId,  // dedupe re-fires for the same conv
+      });
+    } catch { /* ignore */ }
+  }
+}
+
 const MS_DAY = 24 * 60 * 60 * 1000;
 function bucketOf(s?: string | null): string {
   if (!s) return "Older";
@@ -58,6 +100,15 @@ export function Inbox() {
   const [text, setText] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const msgEnd = useRef<HTMLDivElement>(null);
+  // Track which "mine" conv IDs we've already seen so we only notify on new ones
+  const seenMineIds = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    // Ask for notification permission once when the agent first opens the inbox.
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     if (searching) return; // pause polling while search results are shown
@@ -69,6 +120,21 @@ export function Inbox() {
         ]);
         setConvs(list);
         setCounts(cs);
+
+        // Notify on newly-assigned conversations (only when looking at the "mine" tab,
+        // since that's the agent's own bucket; supervisors on "all" don't need a ping).
+        if (scope === "mine") {
+          const ids = new Set(list.filter((c: Conv) => c.status === "assigned").map((c: Conv) => c.id));
+          if (seenMineIds.current === null) {
+            // First tick — populate the set without notifying (avoid alerting for everything on load)
+            seenMineIds.current = ids;
+          } else {
+            for (const id of ids) {
+              if (!seenMineIds.current.has(id)) notifyAssigned(id);
+            }
+            seenMineIds.current = ids;
+          }
+        }
       } catch (e: any) { setErr(e.message); }
     };
     tick();

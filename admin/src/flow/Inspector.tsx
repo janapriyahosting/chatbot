@@ -305,9 +305,13 @@ export function NodeInspector({
                 placeholder="You are a friendly Janapriya Upscale assistant. Answer buying questions briefly." />
             </>
           )}
+          <label style={{ marginTop: 12 }}>Out-of-hours / no-agent message</label>
+          <BTextArea value={cfg.unavailable_message || ""} onCommit={(v) => set("unavailable_message", v)}
+            placeholder="Our team is offline right now. Drop your question and we'll reply when we're back." />
           <div style={{ fontSize: 11, color: "#6b7280", marginTop: 8 }}>
-            When reached: auto-assigns to an available agent (round-robin), or falls
-            back to AI if enabled, or queues for supervisor otherwise.
+            When reached: auto-assigns to an in-hours available agent. If nobody is
+            available, the visitor sees the out-of-hours message and the chat is
+            queued so the next agent online picks it up.
           </div>
         </>
       )}

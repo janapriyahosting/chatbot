@@ -1,4 +1,6 @@
+import asyncio
 import html as _html
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,6 +11,7 @@ from pydantic import BaseModel
 
 from app.agents.base import Message
 from app.agents.router import AgentRouter
+from app.core.reassign import reassign_loop
 from app.api.agent import router as agent_router
 from app.api.auth import router as auth_router
 from app.api.bots import router as bots_router
@@ -16,6 +19,7 @@ from app.api.flows import router as flows_router
 from app.api.analytics import router as analytics_router
 from app.api.api_keys import router as api_keys_router
 from app.api.leads import router as leads_router
+from app.api.settings import router as settings_router
 from app.api.sites import router as sites_router
 from app.api.templates import router as templates_router
 from app.api.uploads import router as uploads_router
@@ -23,7 +27,21 @@ from app.api.users import router as users_router
 from app.api.widget import router as widget_router
 from app.channels.whatsapp import router as whatsapp_router
 
-app = FastAPI(title="ChatBot", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Background tasks
+    task = asyncio.create_task(reassign_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="ChatBot", version="0.1.0", lifespan=lifespan)
 
 # CORS: widget runs on customer domains, so it must cross-origin to our API.
 # Admin routes (/sites, /bots, /flows) get proper auth in Phase 3 — for now
@@ -73,6 +91,7 @@ app.include_router(leads_router)
 app.include_router(analytics_router)
 app.include_router(api_keys_router)
 app.include_router(templates_router)
+app.include_router(settings_router)
 
 _agent_router = AgentRouter()
 

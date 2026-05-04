@@ -13,6 +13,7 @@ import { Analytics } from "./pages/Analytics";
 import { ApiKeys } from "./pages/ApiKeys";
 import { WhatsApp } from "./pages/WhatsApp";
 import { Templates } from "./pages/Templates";
+import { Settings } from "./pages/Settings";
 import { useAuth } from "./store";
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -55,6 +56,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/admin/api-keys" element={<Protected><ApiKeys /></Protected>} />
         <Route path="/admin/whatsapp" element={<Protected><WhatsApp /></Protected>} />
         <Route path="/admin/templates" element={<Protected><Templates /></Protected>} />
+        <Route path="/admin/settings" element={<Protected><Settings /></Protected>} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     </BrowserRouter>
