@@ -1,0 +1,17 @@
+[Unit]
+Description=Janapriya Chatbot API
+After=network.target postgresql-16.service valkey.service
+Wants=postgresql-16.service valkey.service
+
+[Service]
+Type=simple
+User=narendhar
+Group=narendhar
+WorkingDirectory=/home/narendhar/projects/chatbot
+EnvironmentFile=/home/narendhar/projects/chatbot/.env
+ExecStart=/home/narendhar/projects/chatbot/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8800
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

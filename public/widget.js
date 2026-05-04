@@ -1,0 +1,749 @@
+(function () {
+  // Guard against accidental double-load (e.g., script tag in two layouts/components)
+  if (window.__cb_widget_loaded) return;
+  window.__cb_widget_loaded = true;
+
+  "use strict";
+
+  // Find our own script tag robustly. document.currentScript can be null when
+  // the script is injected dynamically (e.g., Next.js <Script> component), so
+  // we look for any script with data-bot-id — that's our marker.
+  function findScript() {
+    if (document.currentScript && document.currentScript.hasAttribute("data-bot-id")) {
+      return document.currentScript;
+    }
+    var list = document.querySelectorAll("script[data-bot-id]");
+    if (list.length) return list[list.length - 1];
+    var all = document.getElementsByTagName("script");
+    return all[all.length - 1];
+  }
+  var script = findScript();
+  var BOT_KEY = script && script.getAttribute("data-bot-id");
+  var DEFAULT_API = script && script.src ? script.src.split("/").slice(0, 3).join("/") : "";
+  var API_BASE = (script && script.getAttribute("data-api")) || DEFAULT_API;
+  var TITLE = (script && script.getAttribute("data-title")) || "Chat with us";
+  var STORE_KEY = "cb_vid_" + BOT_KEY;
+
+  if (!BOT_KEY) { console.warn("[chatbot] missing data-bot-id"); return; }
+  if (document.getElementById("cb-root-v1")) return;  // guard against double-injection
+
+  // Resolve relative URLs (e.g., /static/uploads/x.png) against the ChatBot
+  // server origin so they work when the widget is hosted on a customer site.
+  function absUrl(u) {
+    if (!u || typeof u !== "string") return u;
+    if (/^(https?:|data:|blob:)/i.test(u)) return u;
+    if (u.charAt(0) === "/") return API_BASE + u;
+    return u;
+  }
+
+  function h(tag, attrs, children) {
+    var el = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (k === "class") el.className = attrs[k];
+      else if (k === "text") el.textContent = attrs[k];
+      else if (k.indexOf("on") === 0) el.addEventListener(k.slice(2), attrs[k]);
+      else el.setAttribute(k, attrs[k]);
+    }
+    (children || []).forEach(function (c) {
+      if (c == null) return;
+      el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    });
+    return el;
+  }
+
+  function captureUtm() {
+    var q = new URLSearchParams(window.location.search);
+    return {
+      utm_source: q.get("utm_source"), utm_medium: q.get("utm_medium"),
+      utm_campaign: q.get("utm_campaign"), utm_term: q.get("utm_term"),
+      utm_content: q.get("utm_content"),
+      gclid: q.get("gclid"), fbclid: q.get("fbclid"),
+      referrer: document.referrer || null, landing_url: window.location.href
+    };
+  }
+
+  function getVisitorId() { try { return localStorage.getItem(STORE_KEY); } catch (_) { return null; } }
+  function setVisitorId(v) { try { localStorage.setItem(STORE_KEY, v); } catch (_) {} }
+
+  var state = { conversationId: null, awaiting: null, status: "bot", lastMsgId: null, pollTimer: null, agentName: null, persona: null };
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  // Safe markdown: escape first, then apply a small set of transforms.
+  // Supports **bold**, *italic* / _italic_, `code`, [text](https://url), line breaks.
+  function mdToHtml(text) {
+    var s = String(text || "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      function (_, label, url) { return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + '</a>'; });
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^\w*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    s = s.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+    s = s.replace(/`([^`\n]+)`/g, '<code style="background:#f3f4f6;padding:1px 5px;border-radius:3px">$1</code>');
+    s = s.replace(/\n/g, "<br>");
+    return s;
+  }
+
+  function bubbleWithMarkdown(text, side) {
+    var div = document.createElement("div");
+    div.className = "cb-bubble";
+    div.innerHTML = mdToHtml(text);
+    return div;
+  }
+
+  function showTyping() {
+    if (document.getElementById("cb-typing")) return;
+    var dots = h("div", { class: "cb-bubble", id: "cb-typing-bubble", style: "display:inline-flex;gap:3px;background:#f3f4f6" }, [
+      h("span", { style: "width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:cb-pulse 1s infinite 0s" }),
+      h("span", { style: "width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:cb-pulse 1s infinite .15s" }),
+      h("span", { style: "width:6px;height:6px;border-radius:50%;background:#9ca3af;animation:cb-pulse 1s infinite .3s" })
+    ]);
+    var m = h("div", { class: "cb-msg bot", id: "cb-typing" }, [dots]);
+    body.appendChild(m); requestAnimationFrame(function () { body.scrollTop = body.scrollHeight; });
+  }
+  function hideTyping() {
+    var t = document.getElementById("cb-typing");
+    if (t) t.remove();
+  }
+
+  var panel = h("div", { class: "cb-panel", id: "cb-panel-v1", style: "display:none" });
+
+  // Persistent bottom input bar. Hidden by default; shown when the flow is
+  // awaiting a text-type input node, or when the conversation is in agent/AI mode.
+  var barInput = h("input", { class: "cb-bar-input", placeholder: "Type here…" });
+  var barBtn = h("button", { class: "cb-bar-send", "aria-label": "Send" }, ["➤"]);
+  var bottomBar = h("div", { class: "cb-bar" }, [barInput, barBtn]);
+  bottomBar.style.display = "none";
+  var currentSend = null;
+  // Remembered opts so we can re-show the bar on validation errors (422)
+  var _lastBarOpts = null;
+  var _lastBarValue = null;
+  function showInputBar(opts) {
+    _lastBarOpts = opts;
+    bottomBar.style.display = "flex";
+    barInput.type = opts.type || "text";
+    barInput.placeholder = opts.placeholder || "Type here…";
+    barInput.value = "";
+    barInput.disabled = false;
+    barBtn.disabled = false;
+    currentSend = opts.onSend;
+    // Body just shrank (bar appeared). Re-scroll so the newest message stays visible.
+    requestAnimationFrame(function () {
+      body.scrollTop = body.scrollHeight;
+      try { barInput.focus(); } catch (e) {}
+    });
+  }
+  function hideInputBar() {
+    bottomBar.style.display = "none";
+    currentSend = null;
+    // Body just grew (bar disappeared). Re-scroll to bottom.
+    requestAnimationFrame(function () { body.scrollTop = body.scrollHeight; });
+  }
+  barBtn.addEventListener("click", function () { if (currentSend) currentSend(); });
+  barInput.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && currentSend) { e.preventDefault(); currentSend(); }
+  });
+  var headerAvatar = h("img", { id: "cb-header-avatar", alt: "", class: "cb-header-avatar", style: "display:none" });
+  var headerTitle = h("div", { id: "cb-header-title", class: "cb-header-title", text: TITLE });
+  var headerStatus = h("div", { class: "cb-header-status" }, [
+    h("span", { class: "cb-dot" }),
+    h("span", { text: "We are online to assist you" }),
+  ]);
+  var headerText = h("div", { class: "cb-header-text" }, [headerTitle, headerStatus]);
+  var refreshBtn = h("button", { class: "cb-icon-btn", title: "Start a new chat", "aria-label": "Restart" }, ["⟳"]);
+  var minBtn = h("button", { class: "cb-icon-btn", title: "Minimise", "aria-label": "Close", onclick: toggle }, ["⌄"]);
+  var header = h("div", { class: "cb-header" }, [
+    h("div", { class: "cb-header-left" }, [headerAvatar, headerText]),
+    h("div", { class: "cb-header-right" }, [refreshBtn, minBtn]),
+  ]);
+  var body = h("div", { class: "cb-body" });
+  var footer = h("div", { class: "cb-footer", text: "Powered by ChatBot" });
+  panel.appendChild(header); panel.appendChild(body); panel.appendChild(bottomBar); panel.appendChild(footer);
+
+  var launcher = h("button", { class: "cb-launcher", text: "💬", onclick: toggle });
+  var root = h("div", { class: "cb-root", id: "cb-root-v1" }, [launcher, panel]);
+  document.body.appendChild(root);
+
+  refreshBtn.addEventListener("click", function () {
+    if (!confirm("Start a new chat? Your current conversation will be closed.")) return;
+    try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+    body.innerHTML = "";
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    hideInputBar();
+    state.conversationId = null;
+    state.awaiting = null;
+    state.status = "bot";
+    state.lastMsgId = null;
+    _lastStamp = 0;
+    startSession();
+  });
+
+  function toggle() {
+    if (panel.style.display === "none") {
+      panel.style.display = "flex";
+      if (!state.conversationId) startSession();
+    } else {
+      panel.style.display = "none";
+    }
+  }
+
+  var _lastStamp = 0;
+  function fmtTime(ms) {
+    try { return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+    catch (e) { return ""; }
+  }
+  function addMessage(side, bubbleEl) {
+    var now = Date.now();
+    // Show a timestamp separator on first message or when >5min since the last one
+    if (now - _lastStamp > 5 * 60 * 1000) {
+      body.appendChild(h("div", { class: "cb-timestamp", text: fmtTime(now) }));
+    }
+    _lastStamp = now;
+
+    var children = [];
+    if (side === "bot") {
+      var av = state.persona && state.persona.avatar ? absUrl(state.persona.avatar) : null;
+      if (av) children.push(h("img", { class: "cb-msg-avatar", src: av, alt: "" }));
+      else children.push(h("div", { class: "cb-msg-avatar cb-msg-avatar-empty" }));
+    }
+    children.push(bubbleEl);
+    var m = h("div", { class: "cb-msg " + side }, children);
+    body.appendChild(m);
+    // Scroll after layout reflow so scrollHeight includes the new node.
+    requestAnimationFrame(function () { body.scrollTop = body.scrollHeight; });
+  }
+
+  function renderOutput(out) {
+    var kind = out.kind, cfg = out.config || {};
+    if (kind === "text") {
+      var txt = (cfg.body || "").trim();
+      if (!txt) return; // skip empty text bubbles
+      addMessage("bot", bubbleWithMarkdown(txt));
+    } else if (kind === "image") {
+      var box = h("div", { class: "cb-media" }, [h("img", { src: absUrl(cfg.url) })]);
+      if (cfg.caption) box.appendChild(h("div", { class: "cb-caption", text: cfg.caption }));
+      addMessage("bot", box);
+    } else if (kind === "video") {
+      var v = h("video", { src: absUrl(cfg.url), controls: "controls" });
+      var box2 = h("div", { class: "cb-media" }, [v]);
+      if (cfg.caption) box2.appendChild(h("div", { class: "cb-caption", text: cfg.caption }));
+      addMessage("bot", box2);
+    } else if (kind === "document") {
+      var url = absUrl(cfg.url || "");
+      var title = cfg.title || cfg.original_filename || "Document";
+      var desc = cfg.description || "";
+      var fmt = (cfg.original_filename || cfg.url || "").split(".").pop().toUpperCase();
+      var sizeKB = cfg.size ? (cfg.size < 1024 * 1024
+        ? Math.round(cfg.size / 1024) + " KB"
+        : (cfg.size / 1024 / 1024).toFixed(1) + " MB") : "";
+      var meta = [fmt, sizeKB].filter(Boolean).join(" · ");
+      var docIcon = h("div", { style: "flex-shrink:0;width:38px;height:46px;border-radius:4px;background:linear-gradient(135deg,#eef1fb,#dbe3ff);display:grid;place-items:center;font-size:18px;color:#273b84" }, ["📄"]);
+      var docInfo = h("div", { style: "flex:1;min-width:0" }, [
+        h("div", { style: "font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", text: title }),
+        meta ? h("div", { style: "font-size:11px;color:#9ca3af", text: meta }) : null,
+        desc ? h("div", { style: "font-size:12px;color:#6b7280;margin-top:4px", text: desc }) : null,
+      ]);
+      var dlLabel = (cfg.original_filename || "").replace(/[^\w.\-]+/g, "_") || (title + "." + fmt.toLowerCase());
+      var dlBtn = h("a", {
+        href: url, target: "_blank", rel: "noopener", download: dlLabel,
+        style: "flex-shrink:0;padding:6px 12px;border-radius:6px;background:#273b84;color:#fff;text-decoration:none;font-size:12px;font-weight:600",
+        text: "↓ Open"
+      });
+      var docCard = h("div", {
+        style: "display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;max-width:320px"
+      }, [docIcon, docInfo, dlBtn]);
+      if (cfg.caption) {
+        var wrap = h("div", {}, [docCard, h("div", { class: "cb-caption", text: cfg.caption })]);
+        addMessage("bot", wrap);
+      } else {
+        addMessage("bot", docCard);
+      }
+    } else if (kind === "schedule") {
+      var sWrap = h("div", { class: "cb-form" });
+      if (cfg.description) {
+        sWrap.appendChild(h("div", { text: cfg.description, style: "font-size:12px;color:#6b7280;margin-bottom:8px" }));
+      }
+      var today = new Date();
+      var minDays = parseInt(cfg.min_days || "0", 10);
+      var maxDays = parseInt(cfg.max_days || "30", 10);
+      function _isoDate(off) {
+        var t = new Date(today.getFullYear(), today.getMonth(), today.getDate() + off);
+        return t.getFullYear() + "-" + String(t.getMonth()+1).padStart(2,"0") + "-" + String(t.getDate()).padStart(2,"0");
+      }
+      var slots = Array.isArray(cfg.time_slots) ? cfg.time_slots.filter(Boolean) : [];
+
+      var dateInp, selSlot = null, slotRow = null, dateTimeInp = null;
+
+      if (slots.length > 0) {
+        // Date + time-slot buttons
+        dateInp = h("input", {
+          type: "date", min: _isoDate(minDays), max: _isoDate(maxDays), value: _isoDate(minDays),
+          style: "width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box"
+        });
+        sWrap.appendChild(dateInp);
+        sWrap.appendChild(h("div", { text: cfg.time_label || "Pick a time:", style: "font-size:12px;color:#6b7280;margin-top:10px;margin-bottom:4px" }));
+        slotRow = h("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
+        slots.forEach(function (slot, idx) {
+          var btn = h("button", {
+            type: "button", text: slot,
+            style: "padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;background:#fff;color:#111;cursor:pointer;font-size:13px"
+          });
+          btn.addEventListener("click", function () {
+            selSlot = slot;
+            slotRow.querySelectorAll("button").forEach(function (b) {
+              b.style.background = "#fff"; b.style.borderColor = "#d1d5db"; b.style.color = "#111";
+            });
+            btn.style.background = "#2563eb"; btn.style.borderColor = "#2563eb"; btn.style.color = "#fff";
+          });
+          slotRow.appendChild(btn);
+          // Auto-select if there's only one slot
+          if (slots.length === 1 && idx === 0) {
+            setTimeout(function () { btn.click(); }, 0);
+          }
+        });
+        sWrap.appendChild(slotRow);
+      } else {
+        // Simple combined date+time picker (native HTML5)
+        var pad = function (n) { return String(n).padStart(2, "0"); };
+        var now = new Date();
+        var defaultT = _isoDate(minDays) + "T" + pad(now.getHours()) + ":" + pad(now.getMinutes());
+        dateTimeInp = h("input", {
+          type: "datetime-local",
+          min: _isoDate(minDays) + "T00:00",
+          max: _isoDate(maxDays) + "T23:59",
+          value: defaultT,
+          style: "width:100%;padding:8px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;box-sizing:border-box"
+        });
+        sWrap.appendChild(dateTimeInp);
+      }
+
+      var confirmBtn = h("button", {
+        text: cfg.submit_label || "Confirm",
+        style: "margin-top:10px;background:#2563eb;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600",
+        onclick: function () {
+          var value;
+          if (slotRow) {
+            var d = dateInp.value;
+            if (!d) { alert("Please pick a date"); return; }
+            if (!selSlot) { alert("Please pick a time"); return; }
+            value = d + " " + selSlot;
+          } else {
+            value = dateTimeInp.value;
+            if (!value) { alert("Please pick a date & time"); return; }
+            // Make the value human-friendly: "2026-04-25T14:30" -> "2026-04-25 2:30 PM"
+            var parts = value.split("T");
+            var hhmm = parts[1].split(":");
+            var hh = parseInt(hhmm[0], 10);
+            var ampm = hh >= 12 ? "PM" : "AM";
+            var hh12 = ((hh + 11) % 12) + 1;
+            value = parts[0] + " " + hh12 + ":" + hhmm[1] + " " + ampm;
+          }
+          addMessage("visitor", h("div", { class: "cb-bubble", text: value }));
+          sWrap.querySelectorAll("input,button").forEach(function (n) { n.disabled = true; });
+          sendReply({ value: value });
+        }
+      });
+      sWrap.appendChild(confirmBtn);
+      addMessage("bot", sWrap);
+        } else if (kind === "carousel") {
+      var carousel = h("div", { class: "cb-carousel" },
+        (cfg.cards || []).map(function (c) {
+          return h("div", { class: "cb-card" }, [
+            c.image ? h("img", { src: absUrl(c.image) }) : null,
+            h("div", { class: "cb-card-body" }, [
+              h("div", { class: "cb-card-title", text: c.title || "" }),
+              c.subtitle ? h("div", { text: c.subtitle }) : null
+            ])
+          ]);
+        }));
+      addMessage("bot", carousel);
+    } else if (kind === "buttons") {
+      addMessage("bot", h("div", { class: "cb-bubble", text: cfg.body || "" }));
+      var row = h("div", { class: "cb-buttons" },
+        (cfg.options || []).map(function (opt) {
+          return h("button", {
+            class: "cb-btn", text: opt.label || opt.value,
+            onclick: function () { onButton(opt); }
+          });
+        }));
+      addMessage("bot", row);
+    } else if (kind === "input") {
+      var t1 = (cfg.type || "text").toLowerCase();
+      // Text-like input → use the persistent bottom bar (better UX than a bubble).
+      // Keep bubble for select/radio/checkbox/file which need their own widget.
+      var TEXT_LIKE = ["text", "email", "tel", "phone", "number", "url", "date"];
+      if (TEXT_LIKE.indexOf(t1) !== -1) {
+        var htypeBar = t1 === "tel" || t1 === "phone" ? "tel" :
+          t1 === "email" ? "email" : t1 === "number" ? "number" :
+          t1 === "url" ? "url" : t1 === "date" ? "date" : "text";
+        showInputBar({
+          type: htypeBar,
+          placeholder: "Type your " + (cfg.field || "answer") + "…",
+          onSend: function () {
+            var v = (barInput.value || "").trim();
+            if (!v) return;
+            _lastBarValue = v;
+            addMessage("visitor", h("div", { class: "cb-bubble", text: v }));
+            hideInputBar();
+            sendReply({ value: v });
+          },
+        });
+        return;  // don't render a bubble for this input
+      }
+      var wrap = h("div", { class: "cb-form" });
+      var inp;
+      if (t1 === "textarea") {
+        // Textarea still uses the bottom bar — single-line bar with Enter-to-send
+        showInputBar({
+          type: "text",
+          placeholder: "Type your " + (cfg.field || "answer") + "…",
+          onSend: function () {
+            var v = (barInput.value || "").trim();
+            if (!v) return;
+            _lastBarValue = v;
+            addMessage("visitor", h("div", { class: "cb-bubble", text: v }));
+            hideInputBar();
+            sendReply({ value: v });
+          },
+        });
+        return;
+      } else if (t1 === "select") {
+        inp = h("select", {});
+        (cfg.options || []).forEach(function (o) { inp.appendChild(h("option", { value: o.value, text: o.label || o.value })); });
+      } else if (t1 === "radio") {
+        inp = h("div"); inp.__isRadioGroup = true;
+        (cfg.options || []).forEach(function (o, i) {
+          var id = "cb-ir-" + Date.now() + "-" + i;
+          var r = h("input", { type: "radio", name: "cb_input_" + Date.now(), value: o.value, id: id });
+          var lb = h("label", { for: id, text: " " + (o.label || o.value), style: "display:inline;margin-right:10px;font-weight:400" });
+          inp.appendChild(r); inp.appendChild(lb);
+          inp.__groupName = r.name;
+        });
+      } else if (t1 === "checkbox") {
+        inp = h("input", { type: "checkbox", style: "width:auto" });
+      } else if (t1 === "file") {
+        inp = h("input", { type: "file", accept: "image/*,video/*,application/pdf" });
+        inp.__fileUploadUrl = null;
+        inp.addEventListener("change", async function () {
+          var fo = inp.files && inp.files[0];
+          if (!fo) return;
+          var fd = new FormData(); fd.append("file", fo);
+          var res = await fetch(API_BASE + "/widget/upload?conversation_id=" + state.conversationId, { method: "POST", body: fd });
+          if (res.ok) { var d = await res.json(); inp.__fileUploadUrl = d.url; }
+          else { inp.value = ""; alert("Upload failed"); }
+        });
+      } else {
+        var htype1 = t1 === "tel" || t1 === "phone" ? "tel" :
+          t1 === "email" ? "email" : t1 === "number" ? "number" :
+          t1 === "url" ? "url" : t1 === "date" ? "date" : "text";
+        var attrs1 = { type: htype1, placeholder: cfg.placeholder || "" };
+        if (t1 === "number") { if (cfg.min != null) attrs1.min = String(cfg.min); if (cfg.max != null) attrs1.max = String(cfg.max); }
+        inp = h("input", attrs1);
+      }
+      wrap.appendChild(inp);
+      var btn1 = h("button", {
+        text: "Send",
+        onclick: function () {
+          var v;
+          if (inp.__isRadioGroup) {
+            var c = inp.querySelector('input[name="' + inp.__groupName + '"]:checked');
+            v = c ? c.value : "";
+          } else if (inp.type === "checkbox") {
+            v = inp.checked ? "true" : "false";
+          } else if (inp.type === "file") {
+            v = inp.__fileUploadUrl || "";
+          } else {
+            v = inp.value;
+          }
+          addMessage("visitor", h("div", { class: "cb-bubble", text: String(v) || "(empty)" }));
+          wrap.querySelectorAll("input,button,select,textarea").forEach(function (n) { n.disabled = true; });
+          sendReply({ value: v });
+        }
+      });
+      wrap.appendChild(btn1);
+      addMessage("bot", wrap);
+    } else if (kind === "otp") {
+      var otpWrap = h("div", { class: "cb-form" });
+      otpWrap.appendChild(h("div", { text: cfg.phone ? ("Phone: " + cfg.phone) : "Enter OTP:" }));
+      var otpInput = h("input", { type: "tel", placeholder: "6-digit OTP", maxlength: String(cfg.length || 6) });
+      otpInput.style.letterSpacing = "4px"; otpInput.style.textAlign = "center"; otpInput.style.fontSize = "18px";
+      otpWrap.appendChild(otpInput);
+      var otpBtn = h("button", {
+        text: "Verify",
+        onclick: function () {
+          var v = (otpInput.value || "").trim();
+          if (!/^\d{4,8}$/.test(v)) { otpInput.focus(); return; }
+          addMessage("visitor", h("div", { class: "cb-bubble", text: "•".repeat(v.length) }));
+          otpWrap.querySelectorAll("input,button").forEach(function (n) { n.disabled = true; });
+          sendReply({ value: v, otp: v });
+        }
+      });
+      otpWrap.appendChild(otpBtn);
+      addMessage("bot", otpWrap);
+    } else if (kind === "form") {
+      var fields = cfg.fields || [];
+      var inputs = {};
+      var frm = h("div", { class: "cb-form" });
+      (cfg.intro ? [h("div", { text: cfg.intro })] : []).forEach(function (e) { frm.appendChild(e); });
+      fields.forEach(function (f) {
+        frm.appendChild(h("label", { text: (f.label || f.name) + (f.required === false ? " (optional)" : "") }));
+        var inp;
+        var t = (f.type || "text").toLowerCase();
+        if (t === "textarea") {
+          inp = h("textarea", { name: f.name, placeholder: f.placeholder || "" });
+        } else if (t === "select") {
+          inp = h("select", { name: f.name });
+          (f.options || []).forEach(function (o) { inp.appendChild(h("option", { value: o.value, text: o.label || o.value })); });
+        } else if (t === "radio") {
+          var radios = h("div");
+          (f.options || []).forEach(function (o, i) {
+            var id = "cb-r-" + f.name + "-" + i;
+            var r = h("input", { type: "radio", name: "cb_" + f.name, value: o.value, id: id });
+            var lbl = h("label", { for: id, text: " " + (o.label || o.value), style: "display:inline;margin-right:10px;font-weight:400" });
+            radios.appendChild(r); radios.appendChild(lbl);
+          });
+          // Wrap so we can read selected value later
+          inp = radios; inp.__isRadioGroup = true; inp.__name = f.name;
+        } else if (t === "checkbox") {
+          inp = h("input", { type: "checkbox", name: f.name, style: "width:auto" });
+        } else if (t === "file") {
+          inp = h("input", { type: "file", name: f.name, accept: "image/*,video/*,application/pdf" });
+          inp.__fileUploadUrl = null;
+          inp.addEventListener("change", async function () {
+            var fileObj = inp.files && inp.files[0];
+            if (!fileObj) return;
+            var fd = new FormData(); fd.append("file", fileObj);
+            var res = await fetch(API_BASE + "/widget/upload?conversation_id=" + state.conversationId, {
+              method: "POST", body: fd,
+            });
+            if (res.ok) {
+              var data = await res.json();
+              inp.__fileUploadUrl = data.url;
+            } else {
+              inp.value = ""; inp.__fileUploadUrl = null;
+              alert("Upload failed");
+            }
+          });
+        } else {
+          var htype = t === "tel" || t === "phone" ? "tel" :
+            t === "email" ? "email" : t === "number" ? "number" :
+            t === "url" ? "url" : t === "date" ? "date" : "text";
+          var attrs = { name: f.name, placeholder: f.placeholder || "", type: htype };
+          if (t === "number") { if (f.min != null) attrs.min = String(f.min); if (f.max != null) attrs.max = String(f.max); }
+          inp = h("input", attrs);
+        }
+        inputs[f.name] = inp; frm.appendChild(inp);
+      });
+      var submit = h("button", {
+        text: cfg.submit_label || "Submit",
+        onclick: function () {
+          var values = {};
+          Object.keys(inputs).forEach(function (k) {
+            var el = inputs[k];
+            if (el.__isRadioGroup) {
+              var checked = el.querySelector('input[name="cb_' + el.__name + '"]:checked');
+              values[k] = checked ? checked.value : "";
+            } else if (el.type === "checkbox") {
+              values[k] = el.checked ? "true" : "false";
+            } else if (el.type === "file") {
+              values[k] = el.__fileUploadUrl || "";
+            } else {
+              values[k] = el.value;
+            }
+          });
+          var lines = fields.map(function (f) { return (f.label || f.name) + ": " + (values[f.name] || ""); }).join("\n");
+          addMessage("visitor", h("div", { class: "cb-bubble", text: lines }));
+          frm.querySelectorAll("input,button,select,textarea").forEach(function (n) { n.disabled = true; });
+          sendReply({ values: values });
+        }
+      });
+      frm.appendChild(submit);
+      addMessage("bot", frm);
+    }
+  }
+
+  function onButton(opt) {
+    addMessage("visitor", h("div", { class: "cb-bubble", text: opt.label || opt.value }));
+    // Disable any remaining buttons in that last row
+    var rows = body.querySelectorAll(".cb-buttons");
+    if (rows.length) rows[rows.length - 1].querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+    sendReply({ value: opt.value });
+  }
+
+  function addSystemMsg(text) {
+    var el = h("div", { class: "cb-msg bot" }, [
+      h("div", { class: "cb-bubble", style: "font-style:italic;color:#6b7280;background:#f3f4f6" }, [text])
+    ]);
+    body.appendChild(el); body.scrollTop = body.scrollHeight;
+  }
+
+  function ensureAgentInput() {
+    // Reuse the unified bottom bar for agent / AI chat.
+    showInputBar({
+      type: "text",
+      placeholder: "Type a message…",
+      onSend: function () {
+        var t = (barInput.value || "").trim();
+        if (!t) return;
+        barInput.value = "";
+        addMessage("visitor", h("div", { class: "cb-bubble", text: t }));
+        fetch(API_BASE + "/widget/message", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ conversation_id: state.conversationId, text: t })
+        });
+      },
+    });
+  }
+
+  function handleStatusChange(newStatus) {
+    if (state.status === newStatus) return;
+    state.status = newStatus;
+    if (newStatus === "queued") addSystemMsg("Waiting for an agent…");
+    if (newStatus === "assigned" && state.agentName) addSystemMsg(state.agentName + " joined the chat");
+    if (newStatus === "assigned" && !state.agentName) addSystemMsg("An agent joined the chat");
+    if (newStatus === "closed") {
+      addSystemMsg("Chat closed");
+      if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+      hideInputBar();
+    }
+  }
+
+  async function pollOnce() {
+    if (!state.conversationId) return;
+    try {
+      var res = await fetch(API_BASE + "/widget/poll", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversation_id: state.conversationId, since_id: state.lastMsgId })
+      });
+      if (!res.ok) return;
+      var data = await res.json();
+      if (data.agent_name) state.agentName = data.agent_name;
+      handleStatusChange(data.status);
+      (data.messages || []).forEach(function (m) {
+        state.lastMsgId = m.id;
+        if ((m.sender === "agent" || m.sender === "bot") && m.kind === "text") {
+          addMessage("bot", bubbleWithMarkdown(m.body || ""));
+        } else if (m.sender === "system") {
+          addSystemMsg(m.body || "");
+        }
+        // visitor's own messages come back but are already rendered locally; skip
+      });
+      if (data.status === "assigned" || data.status === "queued") ensureAgentInput();
+    } catch (e) { /* swallow; we'll retry */ }
+  }
+
+  function startPolling() {
+    if (state.pollTimer) return;
+    state.pollTimer = setInterval(pollOnce, 2000);
+  }
+
+  function applyPersona(p) {
+    if (!p) return;
+    state.persona = p;
+    if (p.name) headerTitle.textContent = p.name;
+    if (p.avatar) { headerAvatar.src = absUrl(p.avatar); headerAvatar.style.display = "inline-block"; }
+  }
+
+  async function renderOutputsStaggered(outs, opts) {
+    var stagger = !opts || opts.stagger !== false;
+    for (var i = 0; i < outs.length; i++) {
+      var o = outs[i];
+      var isBotBubble = o.kind === "text" || o.kind === "image" || o.kind === "video" || o.kind === "carousel" || o.kind === "document" || o.kind === "schedule";
+      if (stagger && isBotBubble) {
+        // Longer pause before the first bot message of a response (it's the
+        // natural "thinking" gap after the visitor's reply). Shorter pause
+        // between subsequent bubbles within the same response.
+        var delay = i === 0 ? 1800 : 500;
+        showTyping();
+        await sleep(delay);
+        hideTyping();
+      }
+      renderOutput(o);
+    }
+  }
+
+  async function startSession() {
+    try {
+      var res = await fetch(API_BASE + "/widget/session", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bot_key: BOT_KEY, visitor_id: getVisitorId(), utm: captureUtm() })
+      });
+      if (!res.ok) { addMessage("bot", h("div", { class: "cb-bubble", text: "Sorry, chat unavailable." })); return; }
+      var data = await res.json();
+      state.conversationId = data.conversation_id;
+      state.awaiting = data.awaiting;
+      state.status = data.status || "bot";
+      applyPersona(data.persona);
+      setVisitorId(data.visitor_id);
+      // Boot: show everything instantly so the first paint is the full welcome.
+      await renderOutputsStaggered(data.outputs || [], { stagger: false });
+      if (state.status === "queued" || state.status === "assigned" || state.status === "ai") {
+        ensureAgentInput();
+        handleStatusChange(state.status);
+        startPolling();
+      }
+    } catch (e) {
+      addMessage("bot", h("div", { class: "cb-bubble", text: "Connection error." }));
+    }
+  }
+
+  async function sendReply(payload) {
+    try {
+      var res = await fetch(API_BASE + "/widget/reply", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversation_id: state.conversationId, payload: payload })
+      });
+      if (res.status === 422) {
+        // Per-field validation errors from the server
+        var err = await res.json();
+        var fe = (err.detail && err.detail.field_errors) || {};
+        var keys = Object.keys(fe);
+        if (keys.length) {
+          addMessage("bot", h("div", { class: "cb-bubble", style: "background:#fef3c7;color:#92400e" }, [keys.map(function (k) { return k + ": " + fe[k]; }).join("\n")]));
+          // Case A: bar-based text/tel/email input — bar was hidden on send; re-show with prior value
+          if (bottomBar.style.display === "none" && _lastBarOpts) {
+            showInputBar(_lastBarOpts);
+            if (_lastBarValue != null) {
+              barInput.value = _lastBarValue;
+              setTimeout(function () { try { barInput.focus(); barInput.select && barInput.select(); } catch (_) {} }, 60);
+            }
+            return;
+          }
+          // Case B: form-node submit — re-enable inputs on the LAST .cb-form so the user can correct
+          var allForms = body.querySelectorAll(".cb-form");
+          var lastForm = allForms[allForms.length - 1];
+          if (lastForm) {
+            lastForm.querySelectorAll("input, button, select, textarea").forEach(function (n) { n.disabled = false; });
+            var firstKey = keys[0];
+            var target = lastForm.querySelector('[name="' + firstKey + '"]') ||
+                         lastForm.querySelector('input[name="cb_' + firstKey + '"]');
+            if (target) { try { target.focus(); if (target.select) target.select(); } catch (_) {} }
+            try { lastForm.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
+          }
+          return;
+        }
+      }
+      if (!res.ok) { addMessage("bot", h("div", { class: "cb-bubble", text: "Send failed." })); return; }
+      var data = await res.json();
+      state.awaiting = data.awaiting;
+      state.status = data.status || state.status;
+      await renderOutputsStaggered(data.outputs || []);
+      if (state.status === "queued" || state.status === "assigned" || state.status === "ai") {
+        ensureAgentInput();
+        handleStatusChange(state.status);
+        startPolling();
+      } else if (data.ended) {
+        addMessage("bot", h("div", { class: "cb-bubble", text: "— end of chat —" }));
+      }
+    } catch (e) {
+      addMessage("bot", h("div", { class: "cb-bubble", text: "Connection error." }));
+    }
+  }
+
+  // Auto-inject CSS from same origin as the script
+  var cssHref = script.src.replace(/widget\.js(\?.*)?$/, "widget.css");
+  var link = document.createElement("link");
+  link.rel = "stylesheet"; link.href = cssHref;
+  document.head.appendChild(link);
+})();

@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>ChatBot widget demo</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; color:#111; }
+    h1 { font-weight:600; }
+    code { background:#f3f4f6; padding:2px 6px; border-radius:4px; }
+  </style>
+</head>
+<body>
+  <h1>Demo: customer site embedding the chatbot</h1>
+  <p>This page simulates a customer website. The widget is injected via a single <code>&lt;script&gt;</code> tag.</p>
+  <p>Try it: click the blue bubble at the bottom-right.</p>
+  <p>UTM capture test: reload with <code>?utm_source=google&utm_campaign=spring&gclid=abc123</code>.</p>
+
+  <!-- EMBED: replace data-bot-id with the real public_key from POST /bots -->
+  <script src="/static/widget.js"
+          data-bot-id="__BOT_KEY__"
+          data-title="Janapriya Upscale"></script>
+</body>
+</html>

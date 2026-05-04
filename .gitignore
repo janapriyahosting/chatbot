@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# Frontend
+admin/node_modules/
+admin/dist/
+
+# User-uploaded content (served at runtime; not source)
+public/uploads/
+
+# Editor / OS / backup
+*.bak
+*.bak.*
+.DS_Store
+*.swp
