@@ -52,9 +52,103 @@ export function Analytics() {
             <h3 style={{ marginTop: 0 }}>Messages by sender (30d)</h3>
             <BarChart data={Object.entries(d.messages_by_sender_30d).map(([k, v]) => ({ label: k, value: v }))} />
           </div>
+
+          <AgentPerformance />
         </>
       )}
     </Layout>
+  );
+}
+
+type AgentRow = {
+  id: string; email: string; display_name: string;
+  is_active: boolean; is_available: boolean;
+  chats_handled: number; chats_closed: number; messages_sent: number;
+  first_response_p50: number | null; first_response_p90: number | null;
+  close_time_p50: number | null; reassigned_away: number;
+};
+
+function fmtSec(s: number | null): string {
+  if (s == null) return "—";
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.round(s / 60)}m`;
+  return `${(s / 3600).toFixed(1)}h`;
+}
+
+function AgentPerformance() {
+  const { token } = useAuth();
+  const [days, setDays] = useState(7);
+  const [data, setData] = useState<{ rows: AgentRow[]; since: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setData(null); setErr(null);
+    fetch(`/analytics/agents?days=${days}`, { headers: { authorization: `Bearer ${token}` } })
+      .then((r) => r.ok ? r.json() : Promise.reject(r.statusText))
+      .then(setData).catch((e) => setErr(String(e)));
+  }, [token, days]);
+
+  return (
+    <div className="card" style={{ marginTop: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: 12 }}>
+        <h3 style={{ margin: 0 }}>Agent performance</h3>
+        <div style={{ flex: 1 }} />
+        <label style={{ fontSize: 12, color: "#6b7280", marginRight: 6 }}>Range:</label>
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={1}>Today (24h)</option>
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+        </select>
+      </div>
+      {err && <div className="error">{err}</div>}
+      {!data && !err && <div style={{ color: "#6b7280" }}>Loading…</div>}
+      {data && data.rows.length === 0 && (
+        <div style={{ color: "#6b7280" }}>No agents yet.</div>
+      )}
+      {data && data.rows.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "#6b7280", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, borderBottom: "1px solid #e5e7eb" }}>
+                <th style={{ padding: "8px 6px" }}>Agent</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="Distinct chats assigned">Handled</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="Chats they were the last assignee on at close">Closed</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="Agent messages they wrote">Msgs</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="Median time from assignment → first reply">First-reply (p50)</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="p90 of the same — the slow tail">First-reply (p90)</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="Median time from assignment → conversation closed">Close (p50)</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="Chats taken from them by the idle-reassign loop">Reassigned away</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r) => (
+                <tr key={r.id} style={{ borderBottom: "1px solid #f3f4f6", opacity: r.is_active ? 1 : 0.55 }}>
+                  <td style={{ padding: "8px 6px" }}>
+                    <div style={{ fontWeight: 600 }}>{r.display_name}</div>
+                    <div style={{ fontSize: 11, color: "#6b7280" }}>
+                      {r.email}
+                      {!r.is_active && <span style={{ color: "#dc2626" }}> · disabled</span>}
+                      {r.is_active && r.is_available && <span style={{ color: "#059669" }}> · available</span>}
+                    </div>
+                  </td>
+                  <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 600 }}>{r.chats_handled}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "right" }}>{r.chats_closed}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "right" }}>{r.messages_sent}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "right" }}>{fmtSec(r.first_response_p50)}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "right" }}>{fmtSec(r.first_response_p90)}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "right" }}>{fmtSec(r.close_time_p50)}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "right", color: r.reassigned_away ? "#dc2626" : "#374151" }}>{r.reassigned_away}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 8 }}>
+            Hover the column headers for definitions. Range starts at {new Date(data.since).toLocaleString()}.
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
