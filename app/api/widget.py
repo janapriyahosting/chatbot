@@ -390,6 +390,66 @@ async def visitor_close(
     await db.commit()
 
 
+class _CsatRequest(BaseModel):
+    conversation_id: uuid.UUID
+    positive: bool
+    comment: str | None = None
+
+
+@router.post("/csat", status_code=204)
+async def visitor_csat(
+    payload: _CsatRequest, db: AsyncSession = Depends(get_session)
+) -> None:
+    """Visitor-submitted satisfaction rating. One per conversation; second
+    submission overwrites the first (cheap and forgiving)."""
+    from app.models.csat import CsatRating
+
+    conv = await db.get(Conversation, payload.conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    # Pull the latest assignee (the agent at close time) for fast rollups
+    last_assignment = (
+        await db.execute(
+            select(Assignment)
+            .where(Assignment.conversation_id == conv.id)
+            .order_by(Assignment.created_at.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    agent_user_id = last_assignment.user_id if last_assignment else None
+
+    existing = (
+        await db.execute(select(CsatRating).where(CsatRating.conversation_id == conv.id))
+    ).scalars().first()
+    if existing:
+        existing.positive = payload.positive
+        existing.comment = (payload.comment or None)
+        existing.agent_user_id = agent_user_id
+    else:
+        db.add(
+            CsatRating(
+                conversation_id=conv.id,
+                agent_user_id=agent_user_id,
+                positive=payload.positive,
+                comment=(payload.comment or None),
+            )
+        )
+    await db.commit()
+
+
+@router.get("/csat/{conversation_id}")
+async def visitor_csat_status(
+    conversation_id: uuid.UUID, db: AsyncSession = Depends(get_session)
+) -> dict:
+    """Lets the widget skip the prompt if a rating was already submitted
+    (e.g. the visitor reloaded the page after rating)."""
+    from app.models.csat import CsatRating
+    row = (
+        await db.execute(select(CsatRating).where(CsatRating.conversation_id == conversation_id))
+    ).scalars().first()
+    return {"submitted": bool(row), "positive": row.positive if row else None}
+
+
 from fastapi import File as _FFile
 from fastapi import UploadFile as _UploadFile
 

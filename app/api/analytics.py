@@ -158,6 +158,9 @@ async def agent_metrics(
         "first_response_p90": None,
         "close_time_p50": None,
         "reassigned_away": 0,
+        "csat_count": 0,
+        "csat_positive": 0,
+        "csat_pct": None,
     } for a in agents}
     if not rows:
         return {"period_days": days, "since": since.isoformat(), "rows": []}
@@ -292,6 +295,24 @@ async def agent_metrics(
     for uid, n in (await db.execute(q6, {"since": since})).all():
         if str(uid) in rows:
             rows[str(uid)]["reassigned_away"] = int(n)
+
+    # 7) CSAT: per agent_user_id (denormalized on csat_rating), counts in period.
+    q7 = text(
+        """
+        SELECT agent_user_id,
+               COUNT(*),
+               SUM(CASE WHEN positive THEN 1 ELSE 0 END)
+        FROM chatbot.csat_rating
+        WHERE created_at >= :since AND agent_user_id IS NOT NULL
+        GROUP BY agent_user_id
+        """
+    )
+    for uid, total, pos in (await db.execute(q7, {"since": since})).all():
+        if str(uid) in rows:
+            r = rows[str(uid)]
+            r["csat_count"] = int(total)
+            r["csat_positive"] = int(pos or 0)
+            r["csat_pct"] = round(100 * (pos or 0) / total) if total else None
 
     # Sort by chats_handled desc for default order
     sorted_rows = sorted(rows.values(), key=lambda r: r["chats_handled"], reverse=True)

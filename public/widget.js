@@ -670,7 +670,52 @@
       addSystemMsg("Chat closed");
       if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
       hideInputBar();
+      maybeShowCsat();
     }
+  }
+
+  function maybeShowCsat() {
+    if (state.csatShown) return;
+    state.csatShown = true;
+    var convId = state.conversationId;
+    // Don't ask twice if the visitor already rated (e.g. they reloaded).
+    fetch(API_BASE + "/widget/csat/" + encodeURIComponent(convId))
+      .then(function (r) { return r.ok ? r.json() : { submitted: false }; })
+      .then(function (d) { if (d && !d.submitted) renderCsatBlock(convId); })
+      .catch(function () { renderCsatBlock(convId); });
+  }
+
+  function renderCsatBlock(convId) {
+    var box = h("div", { class: "cb-csat" });
+    var title = h("div", { class: "cb-csat-title", text: "How was your chat?" });
+    var btnRow = h("div", { class: "cb-csat-btns" });
+    var thanks = h("div", { class: "cb-csat-thanks", text: "Thank you for the feedback!", style: "display:none" });
+
+    function submit(positive) {
+      thumbUp.disabled = thumbDown.disabled = true;
+      fetch(API_BASE + "/widget/csat", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversation_id: convId, positive: positive })
+      }).finally(function () {
+        btnRow.style.display = "none";
+        thanks.style.display = "block";
+      });
+    }
+    var thumbUp = h("button", {
+      class: "cb-csat-btn", "aria-label": "Good", title: "Good", type: "button",
+      onclick: function () { submit(true); }
+    }, ["👍"]);
+    var thumbDown = h("button", {
+      class: "cb-csat-btn", "aria-label": "Bad", title: "Bad", type: "button",
+      onclick: function () { submit(false); }
+    }, ["👎"]);
+    btnRow.appendChild(thumbUp);
+    btnRow.appendChild(thumbDown);
+    box.appendChild(title);
+    box.appendChild(btnRow);
+    box.appendChild(thanks);
+    body.appendChild(box);
+    body.scrollTop = body.scrollHeight;
   }
 
   async function pollOnce() {

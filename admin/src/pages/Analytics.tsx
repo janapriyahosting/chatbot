@@ -66,6 +66,7 @@ type AgentRow = {
   chats_handled: number; chats_closed: number; messages_sent: number;
   first_response_p50: number | null; first_response_p90: number | null;
   close_time_p50: number | null; reassigned_away: number;
+  csat_count: number; csat_positive: number; csat_pct: number | null;
 };
 
 function fmtSec(s: number | null): string {
@@ -119,6 +120,7 @@ function AgentPerformance() {
                 <th style={{ padding: "8px 6px", textAlign: "right" }} title="p90 of the same — the slow tail">First-reply (p90)</th>
                 <th style={{ padding: "8px 6px", textAlign: "right" }} title="Median time from assignment → conversation closed">Close (p50)</th>
                 <th style={{ padding: "8px 6px", textAlign: "right" }} title="Chats taken from them by the idle-reassign loop">Reassigned away</th>
+                <th style={{ padding: "8px 6px", textAlign: "right" }} title="Customer satisfaction — % thumbs-up out of all ratings received">CSAT</th>
               </tr>
             </thead>
             <tbody>
@@ -139,6 +141,21 @@ function AgentPerformance() {
                   <td style={{ padding: "8px 6px", textAlign: "right" }}>{fmtSec(r.first_response_p90)}</td>
                   <td style={{ padding: "8px 6px", textAlign: "right" }}>{fmtSec(r.close_time_p50)}</td>
                   <td style={{ padding: "8px 6px", textAlign: "right", color: r.reassigned_away ? "#dc2626" : "#374151" }}>{r.reassigned_away}</td>
+                  <td style={{ padding: "8px 6px", textAlign: "right" }}>
+                    {r.csat_count === 0 ? (
+                      <span style={{ color: "#9ca3af" }}>—</span>
+                    ) : (
+                      <span style={{
+                        color: r.csat_pct! >= 80 ? "#059669" : r.csat_pct! >= 50 ? "#d97706" : "#dc2626",
+                        fontWeight: 600,
+                      }}>
+                        {r.csat_pct}%
+                        <span style={{ color: "#9ca3af", fontWeight: 400, fontSize: 11, marginLeft: 4 }}>
+                          ({r.csat_positive}/{r.csat_count})
+                        </span>
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
