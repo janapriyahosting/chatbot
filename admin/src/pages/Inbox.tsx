@@ -332,6 +332,21 @@ export function Inbox() {
                     🕐 started <strong>{fmtDateTime(detail.created_at)}</strong>
                     {detail.closed_at && <>{" "}· ended <strong>{fmtDateTime(detail.closed_at)}</strong></>}
                   </div>
+                  {detail.csat && (
+                    <div style={{
+                      marginTop: 6, padding: "6px 10px", display: "inline-block",
+                      background: detail.csat.positive ? "#d1fae5" : "#fee2e2",
+                      color: detail.csat.positive ? "#065f46" : "#991b1b",
+                      borderRadius: 6, fontSize: 12, fontWeight: 500,
+                    }}>
+                      Customer rating: {detail.csat.positive ? "👍" : "👎"}
+                      {detail.csat.comment && (
+                        <span style={{ marginLeft: 6, fontWeight: 400 }}>
+                          — “{detail.csat.comment}”
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="spacer" />
                 {isSup && detail.status === "queued" && (

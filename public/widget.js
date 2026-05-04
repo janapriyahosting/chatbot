@@ -689,30 +689,73 @@
     var box = h("div", { class: "cb-csat" });
     var title = h("div", { class: "cb-csat-title", text: "How was your chat?" });
     var btnRow = h("div", { class: "cb-csat-btns" });
+    var commentWrap = h("div", { class: "cb-csat-comment", style: "display:none" });
+    var commentLabel = h("div", { class: "cb-csat-comment-label", text: "Tell us more (optional):" });
+    var commentInput = h("textarea", {
+      class: "cb-csat-textarea", rows: "2",
+      placeholder: "Anything you'd like to share?"
+    });
+    var commentRow = h("div", { class: "cb-csat-comment-row" });
+    var sendBtn = h("button", { class: "cb-csat-send", type: "button", text: "Send" });
+    var skipBtn = h("button", { class: "cb-csat-skip", type: "button", text: "Skip" });
+    commentRow.appendChild(skipBtn);
+    commentRow.appendChild(sendBtn);
+    commentWrap.appendChild(commentLabel);
+    commentWrap.appendChild(commentInput);
+    commentWrap.appendChild(commentRow);
     var thanks = h("div", { class: "cb-csat-thanks", text: "Thank you for the feedback!", style: "display:none" });
 
-    function submit(positive) {
-      thumbUp.disabled = thumbDown.disabled = true;
-      fetch(API_BASE + "/widget/csat", {
+    var chosen = null;
+
+    function postRating(positive, comment) {
+      return fetch(API_BASE + "/widget/csat", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversation_id: convId, positive: positive })
-      }).finally(function () {
-        btnRow.style.display = "none";
-        thanks.style.display = "block";
+        body: JSON.stringify({
+          conversation_id: convId,
+          positive: positive,
+          comment: comment || null,
+        })
       });
     }
+
+    function pickThumb(positive) {
+      chosen = positive;
+      thumbUp.disabled = thumbDown.disabled = true;
+      // Visual: dim the unselected one
+      (positive ? thumbDown : thumbUp).classList.add("cb-csat-btn-faded");
+      // Capture rating immediately so we don't lose it if they walk away.
+      postRating(positive, null);
+      btnRow.style.display = "none";
+      commentWrap.style.display = "block";
+      try { commentInput.focus(); } catch (e) {}
+    }
+    function finish() {
+      commentWrap.style.display = "none";
+      thanks.style.display = "block";
+    }
+
     var thumbUp = h("button", {
       class: "cb-csat-btn", "aria-label": "Good", title: "Good", type: "button",
-      onclick: function () { submit(true); }
+      onclick: function () { pickThumb(true); }
     }, ["👍"]);
     var thumbDown = h("button", {
       class: "cb-csat-btn", "aria-label": "Bad", title: "Bad", type: "button",
-      onclick: function () { submit(false); }
+      onclick: function () { pickThumb(false); }
     }, ["👎"]);
     btnRow.appendChild(thumbUp);
     btnRow.appendChild(thumbDown);
+
+    sendBtn.addEventListener("click", function () {
+      var c = (commentInput.value || "").trim();
+      sendBtn.disabled = true; skipBtn.disabled = true;
+      // Re-post with the comment to upsert.
+      postRating(chosen, c).finally(finish);
+    });
+    skipBtn.addEventListener("click", finish);
+
     box.appendChild(title);
     box.appendChild(btnRow);
+    box.appendChild(commentWrap);
     box.appendChild(thanks);
     body.appendChild(box);
     body.scrollTop = body.scrollHeight;

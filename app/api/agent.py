@@ -183,11 +183,19 @@ async def get_conversation(
         if assigned_user_id != user.id:
             raise HTTPException(403, "not your conversation")
 
+    from app.models.csat import CsatRating
     msgs = (
         await db.execute(
             select(Message).where(Message.conversation_id == conv_id).order_by(Message.created_at.asc())
         )
     ).scalars().all()
+    csat_row = (
+        await db.execute(select(CsatRating).where(CsatRating.conversation_id == conv_id))
+    ).scalars().first()
+    csat = (
+        {"positive": csat_row.positive, "comment": csat_row.comment, "created_at": csat_row.created_at.isoformat()}
+        if csat_row else None
+    )
     return ConversationDetail(
         id=conv.id,
         bot_id=conv.bot_id,
@@ -197,6 +205,7 @@ async def get_conversation(
         closed_at=conv.closed_at,
         assigned_user_id=assigned_user_id,
         assigned_to_name=assigned_name,
+        csat=csat,
         messages=[
             MessageOut(
                 id=m.id,

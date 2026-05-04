@@ -35,6 +35,7 @@ class ConversationDetail(BaseModel):
     closed_at: datetime | None = None
     assigned_user_id: uuid.UUID | None = None
     assigned_to_name: str | None = None
+    csat: dict | None = None
     messages: list[MessageOut]
 
 
