@@ -13,6 +13,7 @@ import { Analytics } from "./pages/Analytics";
 import { ApiKeys } from "./pages/ApiKeys";
 import { WhatsApp } from "./pages/WhatsApp";
 import { Templates } from "./pages/Templates";
+import { Assets } from "./pages/Assets";
 import { Settings } from "./pages/Settings";
 import { useAuth } from "./store";
 
@@ -56,6 +57,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <Route path="/admin/api-keys" element={<Protected><ApiKeys /></Protected>} />
         <Route path="/admin/whatsapp" element={<Protected><WhatsApp /></Protected>} />
         <Route path="/admin/templates" element={<Protected><Templates /></Protected>} />
+        <Route path="/admin/assets" element={<Protected><Assets /></Protected>} />
         <Route path="/admin/settings" element={<Protected><Settings /></Protected>} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>

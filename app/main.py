@@ -127,6 +127,7 @@ async def widget_test(bot_key: str, title: str = "Chat with us") -> HTMLResponse
     title_e = _html.escape(title, quote=True)
     body = f"""<!doctype html><html><head><meta charset="utf-8"/>
 <title>Widget test — {bot_key_e}</title>
+<link rel="icon" type="image/png" href="/static/favicon.png"/>
 <style>body{{font-family:-apple-system,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#111}}
 code{{background:#f3f4f6;padding:2px 6px;border-radius:4px}}</style></head>
 <body><h1>Widget test page</h1>

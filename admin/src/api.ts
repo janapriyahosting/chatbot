@@ -101,6 +101,10 @@ export const api = {
     req<any[]>("GET", `/agent/search?q=${encodeURIComponent(q)}`),
   previewFlow: (botId: string, definition: any, reply: any, context: any) =>
     req<any>("POST", `/bots/${botId}/flows/preview`, { definition, reply, context }),
+  listUploads: (kind?: "image" | "video" | "document") =>
+    req<any[]>("GET", `/uploads/list${kind ? `?kind=${kind}` : ""}`),
+  deleteUpload: (filename: string) =>
+    req<any>("POST", "/uploads/delete", { filename }),
   uploadFile: async (file: File): Promise<{ url: string; filename: string }> => {
     const fd = new FormData();
     fd.append("file", file);

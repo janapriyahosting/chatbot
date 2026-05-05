@@ -13,6 +13,7 @@ const NAV: { to: string; label: string; icon: string; supervisorOnly?: boolean }
   { to: "/admin/users", label: "Users", icon: "🧑‍💼", supervisorOnly: true },
   { to: "/admin/api-keys", label: "API keys", icon: "🔑", supervisorOnly: true },
   { to: "/admin/templates", label: "Templates", icon: "📋", supervisorOnly: true },
+  { to: "/admin/assets", label: "Assets", icon: "🖼️", supervisorOnly: true },
   { to: "/admin/settings", label: "Settings", icon: "⚙️", supervisorOnly: true },
 ];
 
@@ -41,11 +42,18 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
       <aside style={{
-        width: 220, background: "#111827", color: "#fff",
+        width: 220, background: "#273b84", color: "#fff",
         display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh",
       }}>
-        <div style={{ padding: "16px 18px", fontWeight: 700, fontSize: 16, borderBottom: "1px solid #1f2937" }}>
-          ChatBot
+        <div style={{
+          padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,.12)",
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          <img src="/static/favicon.png" alt="" width={28} height={28} style={{ display: "block" }} />
+          <div style={{ lineHeight: 1.15 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: ".2px" }}>Janapriya</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".4px" }}>UPSCALE</div>
+          </div>
         </div>
         <nav style={{ flex: 1, padding: "8px 6px" }}>
           {NAV.filter((n) => !n.supervisorOnly || isSup).filter((n) => n.to !== "/admin/api-keys" || isAdmin).map((n) => (
@@ -57,9 +65,10 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
                 display: "flex", alignItems: "center", gap: 10,
                 padding: "8px 12px", margin: "2px 0",
                 borderRadius: 6, textDecoration: "none",
-                color: isActive ? "#fff" : "#d1d5db",
-                background: isActive ? "#2563eb" : "transparent",
+                color: isActive ? "#fff" : "rgba(255,255,255,.78)",
+                background: isActive ? "#ed2347" : "transparent",
                 fontSize: 14, fontWeight: isActive ? 600 : 400,
+                transition: "background .12s",
               })}
             >
               <span style={{ fontSize: 16 }}>{n.icon}</span>
@@ -67,7 +76,7 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
             </NavLink>
           ))}
         </nav>
-        <div style={{ padding: 12, borderTop: "1px solid #1f2937", fontSize: 12 }}>
+        <div style={{ padding: 12, borderTop: "1px solid rgba(255,255,255,.12)", fontSize: 12 }}>
           <div style={{ fontWeight: 600 }}>{user?.display_name || user?.email}</div>
           <div style={{ color: "#9ca3af", marginBottom: 6 }}>{user?.role}</div>
           {isAgent && (
