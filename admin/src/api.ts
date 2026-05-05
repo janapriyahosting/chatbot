@@ -89,6 +89,10 @@ export const api = {
     req<any>("GET", "/settings/whatsapp"),
   putWhatsApp: (body: any) =>
     req<any>("PUT", "/settings/whatsapp", body),
+  getAdminStatus: () =>
+    req<any>("GET", "/admin/status"),
+  restartService: () =>
+    req<any>("POST", "/admin/restart"),
   polishMessage: (text: string, tone?: string) =>
     req<{ text: string }>("POST", "/agent/polish", { text, tone }),
   assignConversation: (id: string, userId: string | null) =>

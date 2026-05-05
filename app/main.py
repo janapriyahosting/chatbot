@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.agents.base import Message
 from app.agents.router import AgentRouter
 from app.core.reassign import reassign_loop
+from app.api.admin_ops import router as admin_ops_router
 from app.api.agent import router as agent_router
 from app.api.auth import router as auth_router
 from app.api.bots import router as bots_router
@@ -56,6 +57,10 @@ app.add_middleware(
 
 _PUBLIC = Path(__file__).resolve().parent.parent / "public"
 app.mount("/static", StaticFiles(directory=_PUBLIC), name="static")
+
+# Register /admin/* API routes BEFORE the SPA catch-all below, otherwise
+# GET requests like /admin/status would be served the SPA index.html.
+app.include_router(admin_ops_router)
 
 _ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
 if _ADMIN_DIST.exists():

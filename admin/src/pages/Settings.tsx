@@ -25,6 +25,7 @@ export function Settings() {
       <WorkingHoursCard canEdit={canEdit} />
       {role === "admin" && <SmtpCard />}
       {role === "admin" && <O365Card />}
+      {role === "admin" && <ServiceCard />}
     </Layout>
   );
 }
@@ -426,4 +427,86 @@ function KV({ rows }: { rows: [string, any][] }) {
 
 function Empty({ children }: { children: any }) {
   return <span style={{ color: "#9ca3af" }}>{children}</span>;
+}
+
+function ServiceCard() {
+  const [status, setStatus] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = async () => {
+    try { setStatus(await api.getAdminStatus()); }
+    catch (e: any) { setErr(e.message); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const restart = async () => {
+    if (!confirm("Restart the backend service? Active requests will be interrupted briefly.")) return;
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      await api.restartService();
+      setMsg("Restart scheduled. Service will be unavailable for ~5 seconds.");
+      // Poll for the new started_at to confirm restart succeeded
+      const t0 = Date.now();
+      const oldStart = status?.started_at;
+      const poll = setInterval(async () => {
+        if (Date.now() - t0 > 30000) { clearInterval(poll); setBusy(false); return; }
+        try {
+          const s = await api.getAdminStatus();
+          if (s.started_at !== oldStart) {
+            clearInterval(poll);
+            setStatus(s);
+            setMsg(`Service restarted ${s.uptime_seconds}s ago.`);
+            setBusy(false);
+          }
+        } catch { /* expected during the restart window */ }
+      }, 1000);
+    } catch (e: any) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  };
+
+  if (!status && !err) return null;
+
+  return (
+    <Section
+      title="Backend service"
+      subtitle="Restart the chatbot-api process. Use after deploying code or env changes."
+      editing={false}
+      canEdit={false}
+      onEdit={() => {}}
+    >
+      {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
+      {msg && <div style={{ background: "#d1fae5", color: "#065f46", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>{msg}</div>}
+      {status && (
+        <>
+          <KV rows={[
+            ["Service", <code>{status.service_name}</code>],
+            ["Uptime", `${status.uptime_seconds}s`],
+            ["Restart authorised", status.restart_authorised
+              ? <span style={{ color: "#059669" }}>● yes</span>
+              : <span style={{ color: "#dc2626" }}>● no — sudoers rule missing</span>],
+          ]} />
+          {!status.restart_authorised && status.restart_blocker && (
+            <pre style={{ fontSize: 11, background: "#fef3c7", padding: 8, borderRadius: 4, whiteSpace: "pre-wrap", marginTop: 8 }}>
+              {status.restart_blocker}
+            </pre>
+          )}
+          <div style={{ display: "flex", marginTop: 12 }}>
+            <div style={{ flex: 1 }} />
+            <button
+              className="btn"
+              onClick={restart}
+              disabled={busy || !status.restart_authorised}
+              style={{ background: "#dc2626", color: "#fff" }}
+            >
+              {busy ? "Restarting…" : "Restart backend"}
+            </button>
+          </div>
+        </>
+      )}
+    </Section>
+  );
 }
