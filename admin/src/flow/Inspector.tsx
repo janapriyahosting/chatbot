@@ -656,16 +656,34 @@ function ApiEditor({ cfg, set }: { cfg: any; set: (k: string, v: any) => void })
         </>
       )}
 
-      <label style={{ marginTop: 12 }}>Extra headers (JSON)</label>
+      <label style={{ marginTop: 12 }}>Extra headers (JSON, templatable)</label>
       <JsonField value={cfg.headers || {}} onChange={(v) => set("headers", v)} />
-      <label>Body (JSON, templatable)</label>
+
+      <label style={{ marginTop: 12 }}>Body type</label>
+      <select
+        value={cfg.body_type || "json"}
+        onChange={(e) => set("body_type", e.target.value)}
+      >
+        <option value="json">JSON (application/json)</option>
+        <option value="form">Form (application/x-www-form-urlencoded)</option>
+      </select>
+      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+        OAuth token endpoints (e.g. Salesforce <code>/oauth2/token</code>) require <strong>form</strong>.
+      </div>
+
+      <label style={{ marginTop: 8 }}>Body (templatable)</label>
       <JsonField value={cfg.body || {}} onChange={(v) => set("body", v)} />
-      <label>Save response as</label>
+
+      <label style={{ marginTop: 12 }}>Save response as</label>
       <BInput value={cfg.save_as || ""} onCommit={(v) => set("save_as", v)} placeholder="api_response" />
-      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
-        Later nodes can read the response at{" "}
-        <code>{`{{api.<save_as>}}`}</code> or reference fields in a condition like{" "}
-        <code>api.api_response.ok == "true"</code>.
+      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6, lineHeight: 1.5 }}>
+        Access in later nodes:
+        <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+          <li><code>{`{{api.${cfg.save_as || "<save_as>"}.<field>}}`}</code> — body field (e.g. <code>access_token</code>)</li>
+          <li><code>{`{{api.${cfg.save_as || "<save_as>"}._status}}`}</code> — HTTP status code</li>
+          <li><code>{`{{api.${cfg.save_as || "<save_as>"}._ok}}`}</code> — true if 2xx</li>
+          <li><code>api.{cfg.save_as || "<save_as>"}._status == "200"</code> — usable in condition node</li>
+        </ul>
       </div>
     </>
   );

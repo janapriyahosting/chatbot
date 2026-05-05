@@ -144,6 +144,7 @@ async def _run_node(node: dict, ctx: dict[str, Any]) -> NodeResult:
         method = (cfg.get("method") or "POST").upper()
         headers = dict(cfg.get("headers") or {})
         body = cfg.get("body")
+        body_type = (cfg.get("body_type") or "json").lower()
         save_as = cfg.get("save_as") or "api_response"
 
         # Apply auth per-node
@@ -154,12 +155,43 @@ async def _run_node(node: dict, ctx: dict[str, Any]) -> NodeResult:
         elif atype == "api_key" and auth.get("header") and auth.get("value"):
             headers[auth["header"]] = auth["value"]
 
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.request(method, url, headers=headers, json=body)
-            try:
-                value = r.json()
-            except Exception:
-                value = {"status": r.status_code, "text": r.text}
+        # Choose how the body is serialised. `form` sends
+        # application/x-www-form-urlencoded — required by OAuth password grant
+        # and many legacy APIs. Default stays `json` for backward compat.
+        request_kwargs: dict[str, Any] = {"method": method, "url": url, "headers": headers}
+        if body:
+            if body_type == "form":
+                request_kwargs["data"] = body
+            else:
+                request_kwargs["json"] = body
+
+        status = 0
+        ok = False
+        resp_headers: dict[str, str] = {}
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                r = await client.request(**request_kwargs)
+                status = r.status_code
+                ok = r.is_success
+                resp_headers = dict(r.headers)
+                try:
+                    parsed = r.json()
+                except Exception:
+                    parsed = r.text
+        except Exception as e:
+            parsed = {"error": str(e)}
+
+        # Keep the response body flat at api.<save_as> for backward compat
+        # (so existing flows reading api.foo.<field> keep working) and add
+        # metadata under reserved underscore keys: _status, _ok, _headers.
+        if isinstance(parsed, dict):
+            value = dict(parsed)
+        else:
+            value = {"value": parsed}
+        value["_status"] = status
+        value["_ok"] = ok
+        value["_headers"] = resp_headers
+
         ctx.setdefault("api", {})[save_as] = value
         return NodeResult()
 
