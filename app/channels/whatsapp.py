@@ -1,9 +1,12 @@
+import logging
+
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.agents.base import Message
 from app.agents.router import AgentRouter
 from app.channels import whatsapp_send
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook/whatsapp", tags=["whatsapp"])
 _agent_router = AgentRouter()
 
@@ -47,7 +50,20 @@ async def inbound(request: Request, x_webhook_secret: str | None = Header(defaul
     reply, agent_used = await _agent_router.reply([Message(role="user", content=text)])
 
     sent = None
+    send_error = None
     if cfg["api_key"] and cfg["from_number"] and cfg["session_message_url"]:
-        sent = await whatsapp_send.send_text(from_number, reply)
+        try:
+            sent = await whatsapp_send.send_text(from_number, reply)
+        except Exception as e:
+            # Always ack the inbound webhook — a 500 here would make the provider
+            # retry and duplicate the conversation. Log loudly instead.
+            log.exception("WhatsApp outbound send failed for %s", from_number)
+            send_error = str(e)
 
-    return {"ok": True, "agent": agent_used, "reply": reply, "whatsapp": sent}
+    return {
+        "ok": True,
+        "agent": agent_used,
+        "reply": reply,
+        "whatsapp": sent,
+        "send_error": send_error,
+    }
