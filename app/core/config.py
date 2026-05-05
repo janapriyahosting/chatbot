@@ -1,17 +1,30 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", extra="ignore", populate_by_name=True
+    )
 
     groq_api_key: str
     groq_model: str = "llama-3.3-70b-versatile"
     gemini_api_key: str
     gemini_model: str = "gemini-2.5-flash"
 
-    chat360_api_key: str = ""
-    chat360_from: str = ""
-    chat360_webhook_secret: str = ""
+    whatsapp_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("WHATSAPP_API_KEY", "CHAT360_API_KEY"),
+    )
+    whatsapp_from: str = Field(
+        default="",
+        validation_alias=AliasChoices("WHATSAPP_FROM", "CHAT360_FROM"),
+    )
+    whatsapp_webhook_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_SECRET", "CHAT360_WEBHOOK_SECRET"),
+    )
+    whatsapp_session_message_url: str = ""
 
     database_url: str
     db_schema: str = "chatbot"

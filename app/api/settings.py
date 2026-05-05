@@ -19,6 +19,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 SMTP_KEY = "smtp"
 O365_KEY = "o365"
+WHATSAPP_KEY = "whatsapp"
 _MASK = "********"
 
 
@@ -149,4 +150,61 @@ async def put_o365(payload: O365Payload, db: AsyncSession = Depends(get_session)
     elif payload.client_secret:
         cfg["client_secret"] = payload.client_secret
     await _save(db, O365_KEY, cfg)
+    return {"ok": True}
+
+
+# ---------------- WhatsApp ----------------
+
+class WhatsAppPayload(BaseModel):
+    api_key: str = ""              # Empty = keep existing; "__clear__" wipes.
+    from_number: str = ""
+    webhook_secret: str = ""       # Empty = keep existing; "__clear__" wipes.
+    session_message_url: str = ""
+
+
+@router.get(
+    "/whatsapp",
+    dependencies=[Depends(require_role(UserRole.admin))],
+)
+async def get_whatsapp(db: AsyncSession = Depends(get_session)) -> dict:
+    cfg = await _load(db, WHATSAPP_KEY)
+    # Empty stored values fall back to env, matching the runtime loader so the
+    # UI never shows "not set" while requests actually pick up env defaults.
+    def pick(key: str, env_default: str) -> str:
+        v = cfg.get(key)
+        return v if v not in (None, "") else env_default
+    return {
+        "api_key_set": bool(cfg.get("api_key") or env_settings.whatsapp_api_key),
+        "from_number": pick("from_number", env_settings.whatsapp_from),
+        "webhook_secret_set": bool(
+            cfg.get("webhook_secret") or env_settings.whatsapp_webhook_secret
+        ),
+        "session_message_url": pick(
+            "session_message_url", env_settings.whatsapp_session_message_url
+        ),
+    }
+
+
+@router.put(
+    "/whatsapp",
+    dependencies=[Depends(require_role(UserRole.admin))],
+)
+async def put_whatsapp(
+    payload: WhatsAppPayload, db: AsyncSession = Depends(get_session)
+) -> dict:
+    cfg = await _load(db, WHATSAPP_KEY)
+    cfg["from_number"] = payload.from_number
+    cfg["session_message_url"] = payload.session_message_url
+
+    if payload.api_key == "__clear__":
+        cfg["api_key"] = ""
+    elif payload.api_key:
+        cfg["api_key"] = payload.api_key
+
+    if payload.webhook_secret == "__clear__":
+        cfg["webhook_secret"] = ""
+    elif payload.webhook_secret:
+        cfg["webhook_secret"] = payload.webhook_secret
+
+    await _save(db, WHATSAPP_KEY, cfg)
     return {"ok": True}

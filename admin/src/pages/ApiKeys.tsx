@@ -58,7 +58,7 @@ export function ApiKeys() {
       <form className="card" onSubmit={create} style={{ marginBottom: 16 }}>
         <label>Key name (for your reference)</label>
         <div className="row">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Chat360 webhook integration" required />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., WhatsApp webhook integration" required />
           <button className="btn">Create key</button>
         </div>
       </form>

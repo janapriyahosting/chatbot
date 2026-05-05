@@ -85,6 +85,10 @@ export const api = {
     req<any>("GET", "/settings/o365"),
   putO365: (body: any) =>
     req<any>("PUT", "/settings/o365", body),
+  getWhatsApp: () =>
+    req<any>("GET", "/settings/whatsapp"),
+  putWhatsApp: (body: any) =>
+    req<any>("PUT", "/settings/whatsapp", body),
   polishMessage: (text: string, tone?: string) =>
     req<{ text: string }>("POST", "/agent/polish", { text, tone }),
   assignConversation: (id: string, userId: string | null) =>
