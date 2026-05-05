@@ -104,7 +104,7 @@ export function Inbox() {
   // Track which "mine" conv IDs we've already seen so we only notify on new ones
   const seenMineIds = useRef<Set<string> | null>(null);
 
-  // Deep-link from email: /admin/inbox?conv=<uuid> auto-selects that conv.
+  // Deep-link from email: /inbox?conv=<uuid> auto-selects that conv.
   const [params] = useSearchParams();
   useEffect(() => {
     const c = params.get("conv");

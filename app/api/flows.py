@@ -15,7 +15,7 @@ from app.runtime.validate import validate_flow
 from app.schemas.flow import FlowCreate, FlowOut, FlowPreviewRequest, FlowUpdate
 
 router = APIRouter(
-    prefix="/bots/{bot_id}/flows",
+    prefix="/api/bots/{bot_id}/flows",
     tags=["flows"],
     dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor))],
 )

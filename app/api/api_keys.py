@@ -21,7 +21,7 @@ from app.models.api_key import ApiKey
 from app.models.user import User, UserRole
 
 router = APIRouter(
-    prefix="/api-keys",
+    prefix="/api/api-keys",
     tags=["api-keys"],
     dependencies=[Depends(require_role(UserRole.admin))],
 )

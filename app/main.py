@@ -58,32 +58,9 @@ app.add_middleware(
 _PUBLIC = Path(__file__).resolve().parent.parent / "public"
 app.mount("/static", StaticFiles(directory=_PUBLIC), name="static")
 
-# Register /admin/* API routes BEFORE the SPA catch-all below, otherwise
-# GET requests like /admin/status would be served the SPA index.html.
+# Register all API routers FIRST so the SPA catch-all (registered last,
+# below) doesn't shadow specific paths like /api/admin/status.
 app.include_router(admin_ops_router)
-
-_ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
-if _ADMIN_DIST.exists():
-    app.mount(
-        "/admin/assets",
-        StaticFiles(directory=_ADMIN_DIST / "assets"),
-        name="admin_assets",
-    )
-
-    from fastapi.responses import FileResponse
-
-    @app.get("/admin", include_in_schema=False)
-    @app.get("/admin/{full_path:path}", include_in_schema=False)
-    async def _admin_spa(full_path: str = "") -> FileResponse:
-        # Serve index.html for any /admin/* path so BrowserRouter can handle
-        # client-side routing (e.g., /admin/bots/<uuid>/flows/<uuid>).
-        # no-store on index.html so a fresh deploy's hashed bundles are picked
-        # up immediately — the bundles themselves are content-addressed.
-        return FileResponse(
-            _ADMIN_DIST / "index.html",
-            headers={"Cache-Control": "no-store"},
-        )
-
 app.include_router(auth_router)
 app.include_router(whatsapp_router)
 app.include_router(sites_router)
@@ -99,6 +76,28 @@ app.include_router(api_keys_router)
 app.include_router(templates_router)
 app.include_router(settings_router)
 app.include_router(o365_router)
+
+_ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
+if _ADMIN_DIST.exists():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=_ADMIN_DIST / "assets"),
+        name="admin_assets",
+    )
+
+    from fastapi.responses import FileResponse
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def _admin_spa(full_path: str = "") -> FileResponse:
+        # Serve index.html for any unmatched path so BrowserRouter can handle
+        # client-side routing (e.g., /bots/<uuid>/flows/<uuid>).
+        # no-store on index.html so a fresh deploy's hashed bundles are picked
+        # up immediately — the bundles themselves are content-addressed.
+        return FileResponse(
+            _ADMIN_DIST / "index.html",
+            headers={"Cache-Control": "no-store"},
+        )
 
 _agent_router = AgentRouter()
 

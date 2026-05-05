@@ -15,7 +15,7 @@ from app.core.working_hours import SETTING_KEY as HOURS_KEY
 from app.models.app_setting import AppSetting
 from app.models.user import UserRole
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 SMTP_KEY = "smtp"
 O365_KEY = "o365"

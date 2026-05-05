@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.core.security import require_role
 from app.models.user import UserRole
 
-router = APIRouter(prefix="/admin", tags=["admin-ops"])
+router = APIRouter(prefix="/api/admin", tags=["admin-ops"])
 log = logging.getLogger(__name__)
 
 PROCESS_STARTED = time.time()

@@ -13,7 +13,7 @@ from app.models.lead import Lead, LeadUtm
 from app.models.user import User, UserRole
 
 router = APIRouter(
-    prefix="/analytics",
+    prefix="/api/analytics",
     tags=["analytics"],
     dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor))],
 )

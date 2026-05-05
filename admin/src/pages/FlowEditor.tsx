@@ -252,7 +252,7 @@ export function FlowEditor() {
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       <div className="topbar">
         <div className="row">
-          <Link to="/admin">← Bots</Link>
+          <Link to="/">← Bots</Link>
           <input value={name} onChange={(e) => setName(e.target.value)}
             style={{ width: 260, padding: 6, color: "#111" }} />
         </div>

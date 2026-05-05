@@ -16,7 +16,7 @@ from app.models.lead import Lead, LeadUtm
 from app.models.user import UserRole
 
 router = APIRouter(
-    prefix="/leads",
+    prefix="/api/leads",
     tags=["leads"],
     dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor))],
 )

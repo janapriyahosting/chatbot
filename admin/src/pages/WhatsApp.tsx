@@ -43,7 +43,7 @@ export function WhatsApp() {
       {err && <div className="error">{err}</div>}
       {bots.length === 0 && (
         <div className="card">
-          No WhatsApp bots yet. Go to <Link to="/admin">Bots</Link> → <strong>+ New bot</strong>,
+          No WhatsApp bots yet. Go to <Link to="/">Bots</Link> → <strong>+ New bot</strong>,
           pick channel <strong>WhatsApp</strong>.
         </div>
       )}
@@ -58,7 +58,7 @@ export function WhatsApp() {
                 </div>
               </div>
               <div className="spacer" />
-              <Link to="/admin" className="btn ghost">Manage</Link>
+              <Link to="/" className="btn ghost">Manage</Link>
             </div>
           </div>
         ))}

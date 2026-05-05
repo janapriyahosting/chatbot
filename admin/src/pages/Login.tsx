@@ -30,20 +30,20 @@ export function Login() {
     const token = params.get("token");
     const errMsg = params.get("error");
     if (token) {
-      history.replaceState({}, "", "/admin/login");
+      history.replaceState({}, "", "/login");
       (async () => {
         try {
           const me = await fetch("/auth/me", {
             headers: { authorization: `Bearer ${token}` },
           }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("auth/me failed"))));
           setAuth(token, me);
-          nav("/admin");
+          nav("/");
         } catch (e: any) {
           setErr(e.message || "login failed");
         }
       })();
     } else if (errMsg) {
-      history.replaceState({}, "", "/admin/login");
+      history.replaceState({}, "", "/login");
       setErr(errMsg);
     }
   }, [setAuth, nav]);
@@ -55,7 +55,7 @@ export function Login() {
     try {
       const r = await api.login(email, password);
       setAuth(r.access_token, r.user);
-      nav("/admin");
+      nav("/");
     } catch (e: any) {
       setErr(e.message || "login failed");
     } finally {

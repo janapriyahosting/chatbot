@@ -30,7 +30,7 @@ class UserUpdate(BaseModel):
     password: str | None = None
 
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get(

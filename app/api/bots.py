@@ -12,7 +12,7 @@ from app.models.user import UserRole
 from app.schemas.bot import BotCreate, BotOut, BotUpdate
 
 router = APIRouter(
-    prefix="/bots",
+    prefix="/api/bots",
     tags=["bots"],
     dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor))],
 )

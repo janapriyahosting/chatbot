@@ -50,7 +50,7 @@ export function TemplatePicker({ onPick }: { onPick: (text: string) => void }) {
           )}
           {loaded && templates.length === 0 && (
             <div style={{ padding: 10, fontSize: 12, color: "#6b7280" }}>
-              No templates yet. Add some in /admin/templates.
+              No templates yet. Add some in /templates.
             </div>
           )}
           {templates.map((t) => (

@@ -19,13 +19,13 @@ import { useAuth } from "./store";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const token = useAuth((s) => s.token);
-  if (!token) return <Navigate to="/admin/login" replace />;
+  if (!token) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
 function HomeForRole() {
   const role = useAuth((s) => s.user?.role);
-  if (role === "agent") return <Navigate to="/admin/inbox" replace />;
+  if (role === "agent") return <Navigate to="/inbox" replace />;
   return <Bots />;
 }
 
@@ -33,9 +33,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <Routes>
-        <Route path="/admin/login" element={<Login />} />
+        <Route path="/login" element={<Login />} />
         <Route
-          path="/admin"
+          path="/"
           element={
             <Protected>
               <HomeForRole />
@@ -43,24 +43,35 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           }
         />
         <Route
-          path="/admin/bots/:botId/flows/:flowId"
+          path="/bots/:botId/flows/:flowId"
           element={
             <Protected>
               <FlowEditor />
             </Protected>
           }
         />
-        <Route path="/admin/users" element={<Protected><Users /></Protected>} />
-        <Route path="/admin/inbox" element={<Protected><Inbox /></Protected>} />
-        <Route path="/admin/leads" element={<Protected><Leads /></Protected>} />
-        <Route path="/admin/analytics" element={<Protected><Analytics /></Protected>} />
-        <Route path="/admin/api-keys" element={<Protected><ApiKeys /></Protected>} />
-        <Route path="/admin/whatsapp" element={<Protected><WhatsApp /></Protected>} />
-        <Route path="/admin/templates" element={<Protected><Templates /></Protected>} />
-        <Route path="/admin/assets" element={<Protected><Assets /></Protected>} />
-        <Route path="/admin/settings" element={<Protected><Settings /></Protected>} />
-        <Route path="*" element={<Navigate to="/admin" replace />} />
+        <Route path="/users" element={<Protected><Users /></Protected>} />
+        <Route path="/inbox" element={<Protected><Inbox /></Protected>} />
+        <Route path="/leads" element={<Protected><Leads /></Protected>} />
+        <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
+        <Route path="/api-keys" element={<Protected><ApiKeys /></Protected>} />
+        <Route path="/whatsapp" element={<Protected><WhatsApp /></Protected>} />
+        <Route path="/templates" element={<Protected><Templates /></Protected>} />
+        <Route path="/assets" element={<Protected><Assets /></Protected>} />
+        <Route path="/settings" element={<Protected><Settings /></Protected>} />
+        {/* Legacy /admin/* paths redirect to the new layout */}
+        <Route path="/admin/login" element={<Navigate to="/login" replace />} />
+        <Route path="/admin" element={<Navigate to="/" replace />} />
+        <Route path="/admin/*" element={<LegacyAdminRedirect />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>
 );
+
+// Strip "/admin" from any old bookmark and redirect to the new path.
+function LegacyAdminRedirect() {
+  const { pathname, search, hash } = window.location;
+  const target = pathname.replace(/^\/admin/, "") + search + hash;
+  return <Navigate to={target || "/"} replace />;
+}

@@ -10,7 +10,7 @@ from app.models.user import UserRole
 from app.schemas.bot import SiteCreate, SiteOut
 
 router = APIRouter(
-    prefix="/sites",
+    prefix="/api/sites",
     tags=["sites"],
     dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor))],
 )

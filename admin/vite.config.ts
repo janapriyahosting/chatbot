@@ -1,10 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Built assets are mounted by FastAPI under /admin/.
+// SPA is served at the bare root by FastAPI; bundle URLs must be /assets/*.
 export default defineConfig({
   plugins: [react()],
-  base: "/admin/",
+  base: "/",
   build: {
     outDir: "dist",
     emptyOutDir: true,
@@ -12,16 +12,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      "/api": "http://127.0.0.1:8800",
       "/auth": "http://127.0.0.1:8800",
-      "/sites": "http://127.0.0.1:8800",
-      "/bots": "http://127.0.0.1:8800",
-      "/users": "http://127.0.0.1:8800",
-      "/agent": "http://127.0.0.1:8800",
       "/uploads": "http://127.0.0.1:8800",
-      "/leads": "http://127.0.0.1:8800",
+      "/webhook": "http://127.0.0.1:8800",
       "/static": "http://127.0.0.1:8800",
-      "/analytics": "http://127.0.0.1:8800",
-      "/api-keys": "http://127.0.0.1:8800",
+      "/widget": "http://127.0.0.1:8800",
     },
   },
 });

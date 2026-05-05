@@ -5,16 +5,16 @@ import { api } from "./api";
 import { useAuth } from "./store";
 
 const NAV: { to: string; label: string; icon: string; supervisorOnly?: boolean }[] = [
-  { to: "/admin/inbox", label: "Live chats", icon: "💬" },
-  { to: "/admin", label: "Bots", icon: "🤖", supervisorOnly: true },
-  { to: "/admin/whatsapp", label: "WhatsApp", icon: "🟢", supervisorOnly: true },
-  { to: "/admin/leads", label: "Leads", icon: "👥", supervisorOnly: true },
-  { to: "/admin/analytics", label: "Analytics", icon: "📈", supervisorOnly: true },
-  { to: "/admin/users", label: "Users", icon: "🧑‍💼", supervisorOnly: true },
-  { to: "/admin/api-keys", label: "API keys", icon: "🔑", supervisorOnly: true },
-  { to: "/admin/templates", label: "Templates", icon: "📋", supervisorOnly: true },
-  { to: "/admin/assets", label: "Assets", icon: "🖼️", supervisorOnly: true },
-  { to: "/admin/settings", label: "Settings", icon: "⚙️", supervisorOnly: true },
+  { to: "/inbox", label: "Live chats", icon: "💬" },
+  { to: "/", label: "Bots", icon: "🤖", supervisorOnly: true },
+  { to: "/whatsapp", label: "WhatsApp", icon: "🟢", supervisorOnly: true },
+  { to: "/leads", label: "Leads", icon: "👥", supervisorOnly: true },
+  { to: "/analytics", label: "Analytics", icon: "📈", supervisorOnly: true },
+  { to: "/users", label: "Users", icon: "🧑‍💼", supervisorOnly: true },
+  { to: "/api-keys", label: "API keys", icon: "🔑", supervisorOnly: true },
+  { to: "/templates", label: "Templates", icon: "📋", supervisorOnly: true },
+  { to: "/assets", label: "Assets", icon: "🖼️", supervisorOnly: true },
+  { to: "/settings", label: "Settings", icon: "⚙️", supervisorOnly: true },
 ];
 
 export function Layout({ children, wide }: { children: ReactNode; wide?: boolean }) {
@@ -56,11 +56,11 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
           </div>
         </div>
         <nav style={{ flex: 1, padding: "8px 6px" }}>
-          {NAV.filter((n) => !n.supervisorOnly || isSup).filter((n) => n.to !== "/admin/api-keys" || isAdmin).map((n) => (
+          {NAV.filter((n) => !n.supervisorOnly || isSup).filter((n) => n.to !== "/api-keys" || isAdmin).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
-              end={n.to === "/admin"}
+              end={n.to === "/"}
               style={({ isActive }) => ({
                 display: "flex", alignItems: "center", gap: 10,
                 padding: "8px 12px", margin: "2px 0",
@@ -98,7 +98,7 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
             </button>
           )}
           <button className="btn ghost" style={{ width: "100%", padding: "6px 8px", fontSize: 12 }}
-            onClick={() => { clear(); nav("/admin/login"); }}>
+            onClick={() => { clear(); nav("/login"); }}>
             Sign out
           </button>
         </div>

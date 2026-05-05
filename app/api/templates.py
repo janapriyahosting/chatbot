@@ -11,7 +11,7 @@ from app.core.security import current_user, require_role
 from app.models.template import MessageTemplate
 from app.models.user import User, UserRole
 
-router = APIRouter(prefix="/templates", tags=["templates"])
+router = APIRouter(prefix="/api/templates", tags=["templates"])
 
 
 class TemplateOut(BaseModel):

@@ -69,7 +69,7 @@ def _login_url(error: str | None = None, token: str | None = None) -> str:
     """Build the SPA URL to redirect back to after the callback handles the
     Microsoft response. We pass info via the fragment (#) so it never hits
     the server logs and isn't sent on subsequent requests."""
-    base = f"{env_settings.public_base_url.rstrip('/')}/admin/login"
+    base = f"{env_settings.public_base_url.rstrip('/')}/login"
     parts = []
     if error:
         parts.append(f"error={urllib.parse.quote(error)}")

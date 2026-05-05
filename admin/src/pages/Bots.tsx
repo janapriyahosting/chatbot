@@ -56,7 +56,7 @@ export function Bots() {
       });
       setShowNew(false);
       setForm({ name: "", channel: "web", site_id: "", newDomain: "" });
-      nav(`/admin/bots/${bot.id}/flows/${flow.id}`);
+      nav(`/bots/${bot.id}/flows/${flow.id}`);
     } catch (e: any) {
       setErr(e.message);
     } finally { setBusy(false); }
@@ -73,7 +73,7 @@ export function Bots() {
       <div className="grid">
         {bots.map((b) => (
           <BotCard key={b.id} bot={b}
-            onOpen={(flowId) => nav(`/admin/bots/${b.id}/flows/${flowId}`)}
+            onOpen={(flowId) => nav(`/bots/${b.id}/flows/${flowId}`)}
             onChanged={reload} />
         ))}
         {bots.length === 0 && <div className="card">No bots yet.</div>}

@@ -29,7 +29,7 @@ from app.schemas.agent import (
     MessageOut,
 )
 
-router = APIRouter(prefix="/agent", tags=["agent"])
+router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 
 def _is_supervisor(user: User) -> bool:

@@ -344,7 +344,7 @@ function O365Card() {
   return (
     <Section
       title="Microsoft 365 sign-in"
-      subtitle="Strict allowlist — visitors must already be registered in /admin/users. Set up an Entra app at https://entra.microsoft.com → App registrations."
+      subtitle="Strict allowlist — visitors must already be registered in /users. Set up an Entra app at https://entra.microsoft.com → App registrations."
       editing={editing}
       canEdit
       onEdit={startEdit}
