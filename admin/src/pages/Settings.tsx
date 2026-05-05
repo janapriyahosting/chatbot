@@ -26,6 +26,7 @@ export function Settings() {
       {role === "admin" && <SmtpCard />}
       {role === "admin" && <O365Card />}
       {role === "admin" && <GitCard />}
+      {role === "admin" && <AutoCloseCard />}
       {role === "admin" && <ServiceCard />}
     </Layout>
   );
@@ -542,6 +543,76 @@ function GitCard() {
           </div>
         </>
       )}
+    </Section>
+  );
+}
+
+function AutoCloseCard() {
+  const [hours, setHours] = useState(24);
+  const [count, setCount] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const peek = async () => {
+    setErr(null); setMsg(null);
+    try {
+      const r = await api.staleConvCount(hours);
+      setCount(r.count);
+    } catch (e: any) { setErr(e.message); }
+  };
+  useEffect(() => { peek(); /* eslint-disable-next-line */ }, []);
+
+  const close = async () => {
+    if (count === null) { await peek(); return; }
+    if (count === 0) { setMsg("Nothing to close."); return; }
+    if (!confirm(`Close ${count} bot-state conversation${count === 1 ? "" : "s"} older than ${hours}h? This cannot be undone.`)) return;
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const r = await api.autoCloseStale(hours);
+      setMsg(`Closed ${r.closed} conversation${r.closed === 1 ? "" : "s"}.`);
+      await peek();
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Section
+      title="Auto-close stale conversations"
+      subtitle="Closes bot-state chats that haven't moved in a while (visitors who closed the tab without ending the chat). Queued / assigned chats are never touched — those need human attention."
+      editing={false}
+      canEdit={false}
+      onEdit={() => {}}
+    >
+      {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
+      {msg && <div style={{ background: "#d1fae5", color: "#065f46", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>{msg}</div>}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 12 }}>
+        <div>
+          <label>Older than (hours)</label>
+          <input
+            type="number"
+            min={1}
+            max={720}
+            value={hours}
+            onChange={(e) => { setHours(Math.max(1, Number(e.target.value) || 1)); setCount(null); }}
+            style={{ width: 110 }}
+          />
+        </div>
+        <button className="btn ghost" onClick={peek} disabled={busy}>Preview</button>
+        <button
+          className="btn"
+          onClick={close}
+          disabled={busy || count === 0}
+          style={{ background: "#dc2626", color: "#fff" }}
+        >
+          {busy ? "Closing…" : `Close ${count ?? "?"} now`}
+        </button>
+      </div>
+      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
+        {count === null
+          ? "Click Preview to count."
+          : `${count} bot-state conversation${count === 1 ? " is" : "s are"} older than ${hours}h.`}
+      </div>
     </Section>
   );
 }

@@ -11,15 +11,18 @@ import logging
 import shutil
 import subprocess
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auto_close import close_stale_bot_convs
 from app.core.db import get_session
 from app.core.security import require_role
 from app.models.app_setting import AppSetting
+from app.models.conversation import Conversation, ConversationStatus
 from app.models.user import UserRole
 
 router = APIRouter(prefix="/api/admin", tags=["admin-ops"])
@@ -160,3 +163,37 @@ async def git_push(db: AsyncSession = Depends(get_session)) -> dict:
 
     log.warning("admin git push succeeded for branch %s", branch_name)
     return {"ok": True, "branch": branch_name, "output": out}
+
+
+# ---------------- Auto-close stale conversations ----------------
+
+@router.get("/stale-conversations", dependencies=[Depends(require_role(UserRole.admin, UserRole.supervisor))])
+async def stale_conversations_count(
+    older_than_hours: int = Query(24, ge=1, le=720),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Preview: how many bot-state conversations are older than the threshold.
+    `bot` only — `queued`/`assigned` need human attention; we don't touch them.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+    rows = (await db.execute(
+        select(Conversation)
+        .where(Conversation.status == ConversationStatus.bot)
+        .where(Conversation.updated_at < cutoff)
+    )).scalars().all()
+    return {"count": len(rows), "older_than_hours": older_than_hours}
+
+
+@router.post("/auto-close-stale", dependencies=[Depends(require_role(UserRole.admin))])
+async def auto_close_stale(
+    older_than_hours: int = Query(24, ge=1, le=720),
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Close every conversation in `bot` state whose last activity (`updated_at`)
+    is older than the threshold. Same logic the hourly background loop runs —
+    just with a configurable threshold instead of the loop's default 24h.
+    """
+    n = await close_stale_bot_convs(db, older_than_hours, actor="auto-close-stale")
+    await db.commit()
+    log.warning("auto-close-stale closed %d bot conversations older than %dh", n, older_than_hours)
+    return {"closed": n, "older_than_hours": older_than_hours}

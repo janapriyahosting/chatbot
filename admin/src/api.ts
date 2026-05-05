@@ -99,6 +99,10 @@ export const api = {
     req<any>("PUT", "/api/settings/git", body),
   gitPush: () =>
     req<any>("POST", "/api/admin/git-push"),
+  staleConvCount: (hours: number) =>
+    req<{ count: number; older_than_hours: number }>("GET", `/api/admin/stale-conversations?older_than_hours=${hours}`),
+  autoCloseStale: (hours: number) =>
+    req<{ closed: number; older_than_hours: number }>("POST", `/api/admin/auto-close-stale?older_than_hours=${hours}`),
   polishMessage: (text: string, tone?: string) =>
     req<{ text: string }>("POST", "/api/agent/polish", { text, tone }),
   assignConversation: (id: string, userId: string | null) =>

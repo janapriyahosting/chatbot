@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.agents.base import Message
 from app.agents.router import AgentRouter
+from app.core.auto_close import auto_close_loop
 from app.core.reassign import reassign_loop
 from app.api.admin_ops import router as admin_ops_router
 from app.api.agent import router as agent_router
@@ -32,15 +33,20 @@ from app.channels.whatsapp import router as whatsapp_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Background tasks
-    task = asyncio.create_task(reassign_loop())
+    tasks = [
+        asyncio.create_task(reassign_loop()),
+        asyncio.create_task(auto_close_loop()),
+    ]
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for t in tasks:
+            t.cancel()
+        for t in tasks:
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="ChatBot", version="0.1.0", lifespan=lifespan)
