@@ -131,7 +131,7 @@ function BotCard({ bot, onOpen, onChanged }: { bot: Bot; onOpen: (flowId: string
     authorization: `Bearer ${localStorage.getItem("cb_admin_token")}`,
   });
   const patch = async (body: any) => {
-    await fetch(`/bots/${bot.id}`, { method: "PATCH", headers: authHeader(), body: JSON.stringify(body) });
+    await fetch(`/api/bots/${bot.id}`, { method: "PATCH", headers: authHeader(), body: JSON.stringify(body) });
   };
   const toggleAuto = async (v: boolean) => { setAuto(v); try { await patch({ auto_assign: v }); } catch {} };
   const toggleActive = async (v: boolean) => { setActive(v); try { await patch({ is_active: v }); } catch {} };
@@ -151,7 +151,7 @@ function BotCard({ bot, onOpen, onChanged }: { bot: Bot; onOpen: (flowId: string
     if (!ok) return;
     const ok2 = window.confirm(`One more time — really delete "${bot.name}"?`);
     if (!ok2) return;
-    const res = await fetch(`/bots/${bot.id}`, { method: "DELETE", headers: authHeader() });
+    const res = await fetch(`/api/bots/${bot.id}`, { method: "DELETE", headers: authHeader() });
     if (res.ok && onChanged) onChanged();
     else alert("Delete failed: " + res.status);
   };

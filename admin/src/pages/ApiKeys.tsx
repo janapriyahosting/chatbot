@@ -19,7 +19,7 @@ export function ApiKeys() {
 
   const reload = async () => {
     try {
-      const r = await fetch("/api-keys", { headers: authH });
+      const r = await fetch("/api/api-keys", { headers: authH });
       if (!r.ok) throw new Error(r.statusText);
       setKeys(await r.json());
     } catch (e: any) { setErr(String(e)); }
@@ -29,7 +29,7 @@ export function ApiKeys() {
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
-    const r = await fetch("/api-keys", { method: "POST", headers: authH, body: JSON.stringify({ name }) });
+    const r = await fetch("/api/api-keys", { method: "POST", headers: authH, body: JSON.stringify({ name }) });
     if (!r.ok) { setErr("create failed"); return; }
     const j = await r.json();
     setCreated({ key: j.key, name: j.name });
@@ -39,7 +39,7 @@ export function ApiKeys() {
 
   const revoke = async (id: string) => {
     if (!confirm("Revoke this API key? Services using it will stop working immediately.")) return;
-    await fetch(`/api-keys/${id}/revoke`, { method: "POST", headers: authH });
+    await fetch(`/api/api-keys/${id}/revoke`, { method: "POST", headers: authH });
     reload();
   };
 

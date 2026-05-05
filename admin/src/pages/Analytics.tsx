@@ -16,7 +16,7 @@ export function Analytics() {
   const [d, setD] = useState<Data | null>(null);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    fetch("/analytics", { headers: { authorization: `Bearer ${token}` } })
+    fetch("/api/analytics", { headers: { authorization: `Bearer ${token}` } })
       .then((r) => r.ok ? r.json() : Promise.reject(r.statusText))
       .then(setD).catch((e) => setErr(String(e)));
   }, [token]);
@@ -84,7 +84,7 @@ function AgentPerformance() {
 
   useEffect(() => {
     setData(null); setErr(null);
-    fetch(`/analytics/agents?days=${days}`, { headers: { authorization: `Bearer ${token}` } })
+    fetch(`/api/analytics/agents?days=${days}`, { headers: { authorization: `Bearer ${token}` } })
       .then((r) => r.ok ? r.json() : Promise.reject(r.statusText))
       .then(setData).catch((e) => setErr(String(e)));
   }, [token, days]);

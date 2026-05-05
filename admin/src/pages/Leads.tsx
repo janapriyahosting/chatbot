@@ -31,7 +31,7 @@ export function Leads() {
   useEffect(() => { api.listBots().then(setBots).catch(() => {}); }, []);
   useEffect(() => {
     const q = botId ? `?bot_id=${botId}` : "";
-    fetch(`/leads${q}`, { headers: { authorization: `Bearer ${token}` } })
+    fetch(`/api/leads${q}`, { headers: { authorization: `Bearer ${token}` } })
       .then((r) => r.ok ? r.json() : Promise.reject("fetch failed"))
       .then(setLeads)
       .catch((e) => setErr(String(e)));
@@ -39,7 +39,7 @@ export function Leads() {
 
   const downloadCsv = async () => {
     const q = botId ? `?bot_id=${botId}` : "";
-    const res = await fetch(`/leads.csv${q}`, { headers: { authorization: `Bearer ${token}` } });
+    const res = await fetch(`/api/leads.csv${q}`, { headers: { authorization: `Bearer ${token}` } });
     if (!res.ok) { setErr("download failed"); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
