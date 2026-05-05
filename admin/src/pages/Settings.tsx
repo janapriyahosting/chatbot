@@ -25,6 +25,7 @@ export function Settings() {
       <WorkingHoursCard canEdit={canEdit} />
       {role === "admin" && <SmtpCard />}
       {role === "admin" && <O365Card />}
+      {role === "admin" && <GitCard />}
       {role === "admin" && <ServiceCard />}
     </Layout>
   );
@@ -427,6 +428,122 @@ function KV({ rows }: { rows: [string, any][] }) {
 
 function Empty({ children }: { children: any }) {
   return <span style={{ color: "#9ca3af" }}>{children}</span>;
+}
+
+function GitCard() {
+  const [cfg, setCfg] = useState<any>(null);
+  const [token, setToken] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [pushOut, setPushOut] = useState<string | null>(null);
+
+  const load = () => api.getGit().then(setCfg).catch((e: any) => setErr(e.message));
+  useEffect(() => { load(); }, []);
+
+  if (!cfg) return null;
+
+  const startEdit = () => { setToken(""); setMsg(null); setErr(null); setEditing(true); };
+  const cancel = () => { setEditing(false); setMsg(null); setErr(null); };
+
+  const save = async () => {
+    setBusy(true); setMsg(null); setErr(null);
+    try {
+      await api.putGit({ token: token || "" });
+      setMsg(token ? "Saved." : "No change (blank input keeps existing token).");
+      setEditing(false);
+      await load();
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  const clearTok = async () => {
+    if (!confirm("Clear the saved GitHub token?")) return;
+    await api.putGit({ token: "__clear__" });
+    await load();
+  };
+
+  const push = async () => {
+    if (!confirm("Push local commits on the current branch to origin? This is irreversible — pushed commits become public on GitHub immediately.")) return;
+    setPushing(true); setPushOut(null); setErr(null);
+    try {
+      const r = await api.gitPush();
+      setPushOut(r.output || (r.ok ? "Push succeeded with no remote output." : "Push failed."));
+      if (!r.ok) setErr(`Push failed (branch ${r.branch})`);
+    } catch (e: any) { setErr(e.message); }
+    finally { setPushing(false); }
+  };
+
+  return (
+    <Section
+      title="GitHub deploy"
+      subtitle="Personal access token (Classic, scope: repo) used to push local commits to origin via HTTPS. Avoids needing an SSH key on the server."
+      editing={editing}
+      canEdit
+      onEdit={startEdit}
+    >
+      {err && <div className="error" style={{ marginBottom: 8 }}>{err}</div>}
+      {msg && <div style={{ background: "#d1fae5", color: "#065f46", padding: "6px 10px", borderRadius: 4, marginBottom: 8, fontSize: 12 }}>{msg}</div>}
+      {!editing ? (
+        <>
+          <KV rows={[
+            ["Token", cfg.token_set
+              ? <span style={{ color: "#059669" }}>● set</span>
+              : <Empty>not set</Empty>],
+          ]} />
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+            <button
+              className="btn"
+              onClick={push}
+              disabled={pushing || !cfg.token_set}
+              style={{ background: "#1f2937" }}
+            >
+              {pushing ? "Pushing…" : "Push to origin"}
+            </button>
+            {pushOut && (
+              <pre style={{
+                margin: 0, fontSize: 11, padding: 8, background: "#f3f4f6",
+                borderRadius: 4, overflow: "auto", maxHeight: 160, flex: 1,
+                whiteSpace: "pre-wrap",
+              }}>{pushOut}</pre>
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <label>
+            Personal access token
+            {cfg.token_set && <span style={{ marginLeft: 8, fontSize: 11, color: "#059669" }}>● set</span>}
+          </label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={cfg.token_set ? "Leave blank to keep existing" : "ghp_…"}
+              style={{ flex: 1 }}
+            />
+            {cfg.token_set && (
+              <button type="button" className="btn ghost" onClick={clearTok}>Clear</button>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+            Generate at <code>github.com/settings/tokens</code> → Classic → scope <code>repo</code>.
+            Admin-only access to this row; sanitised from any error output we surface.
+          </div>
+          <div style={{ display: "flex", marginTop: 12 }}>
+            <div style={{ flex: 1 }} />
+            <button className="btn ghost" onClick={cancel} disabled={busy}>Cancel</button>
+            <button className="btn" onClick={save} disabled={busy} style={{ marginLeft: 8 }}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </>
+      )}
+    </Section>
+  );
 }
 
 function ServiceCard() {

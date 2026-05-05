@@ -93,6 +93,12 @@ export const api = {
     req<any>("GET", "/api/admin/status"),
   restartService: () =>
     req<any>("POST", "/api/admin/restart"),
+  getGit: () =>
+    req<any>("GET", "/api/settings/git"),
+  putGit: (body: { token: string }) =>
+    req<any>("PUT", "/api/settings/git", body),
+  gitPush: () =>
+    req<any>("POST", "/api/admin/git-push"),
   polishMessage: (text: string, tone?: string) =>
     req<{ text: string }>("POST", "/api/agent/polish", { text, tone }),
   assignConversation: (id: string, userId: string | null) =>

@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 SMTP_KEY = "smtp"
 O365_KEY = "o365"
 WHATSAPP_KEY = "whatsapp"
+GIT_KEY = "git"
 _MASK = "********"
 
 
@@ -207,4 +208,33 @@ async def put_whatsapp(
         cfg["webhook_secret"] = payload.webhook_secret
 
     await _save(db, WHATSAPP_KEY, cfg)
+    return {"ok": True}
+
+
+# ---------------- GitHub (personal access token for `git push`) ----------------
+
+class GitPayload(BaseModel):
+    token: str = ""        # Empty = keep existing; "__clear__" wipes.
+
+
+@router.get(
+    "/git",
+    dependencies=[Depends(require_role(UserRole.admin))],
+)
+async def get_git(db: AsyncSession = Depends(get_session)) -> dict:
+    cfg = await _load(db, GIT_KEY)
+    return {"token_set": bool(cfg.get("token"))}
+
+
+@router.put(
+    "/git",
+    dependencies=[Depends(require_role(UserRole.admin))],
+)
+async def put_git(payload: GitPayload, db: AsyncSession = Depends(get_session)) -> dict:
+    cfg = await _load(db, GIT_KEY)
+    if payload.token == "__clear__":
+        cfg["token"] = ""
+    elif payload.token:
+        cfg["token"] = payload.token
+    await _save(db, GIT_KEY, cfg)
     return {"ok": True}
