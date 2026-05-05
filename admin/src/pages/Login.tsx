@@ -168,7 +168,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: "100vh",
     width: "100%",
     background: "#f9fafb",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    fontFamily: "'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
   },
   brand: {
     flex: "0 0 44%",

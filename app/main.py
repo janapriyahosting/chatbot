@@ -127,7 +127,10 @@ async def widget_test(bot_key: str, title: str = "Chat with us") -> HTMLResponse
     body = f"""<!doctype html><html><head><meta charset="utf-8"/>
 <title>Widget test — {bot_key_e}</title>
 <link rel="icon" type="image/png" href="/static/favicon.png"/>
-<style>body{{font-family:-apple-system,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#111}}
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet"/>
+<style>body{{font-family:"Lato",-apple-system,sans-serif;max-width:720px;margin:40px auto;padding:0 16px;color:#111}}
 code{{background:#f3f4f6;padding:2px 6px;border-radius:4px}}</style></head>
 <body><h1>Widget test page</h1>
 <p>Bot key: <code>{bot_key_e}</code></p>
