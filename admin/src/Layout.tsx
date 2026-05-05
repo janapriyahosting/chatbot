@@ -46,14 +46,14 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
         display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh",
       }}>
         <div style={{
-          padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,.12)",
-          display: "flex", alignItems: "center", gap: 10,
+          padding: "16px 18px", borderBottom: "1px solid rgba(255,255,255,.12)",
+          display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          <img src="/static/favicon.png" alt="" width={28} height={28} style={{ display: "block" }} />
-          <div style={{ lineHeight: 1.15 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: ".2px" }}>Janapriya</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,.7)", letterSpacing: ".4px" }}>UPSCALE</div>
-          </div>
+          <img
+            src="/static/brand/janapriya-upscale-light.png"
+            alt="Janapriya Upscale"
+            style={{ width: "100%", maxWidth: 170, height: "auto", display: "block" }}
+          />
         </div>
         <nav style={{ flex: 1, padding: "8px 6px" }}>
           {NAV.filter((n) => !n.supervisorOnly || isSup).filter((n) => n.to !== "/api-keys" || isAdmin).map((n) => (

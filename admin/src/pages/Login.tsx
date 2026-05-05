@@ -68,11 +68,11 @@ export function Login() {
       {/* Left: brand panel — collapses on mobile (handled via CSS class below) */}
       <div className="login-brand" style={styles.brand}>
         <div style={styles.brandInner}>
-          <img src="/static/favicon.png" alt="" width={72} height={72} style={{ display: "block" }} />
-          <div style={styles.brandTitle}>
-            Janapriya <span style={{ color: "rgba(255,255,255,.78)", fontWeight: 500 }}>UPSCALE</span>
-          </div>
-          <div style={styles.brandTagline}>Ask More of Life</div>
+          <img
+            src="/static/brand/janapriya-upscale-light.png"
+            alt="Janapriya Upscale"
+            style={{ width: "min(380px, 80%)", height: "auto", display: "block" }}
+          />
           <div style={styles.brandDivider} />
           <div style={styles.brandSubtitle}>Chatbot administration console</div>
         </div>
@@ -82,6 +82,11 @@ export function Login() {
       {/* Right: form */}
       <div style={styles.formPanel}>
         <div style={styles.formCard}>
+          <img
+            src="/static/brand/janapriya-upscale-dark.png"
+            alt="Janapriya Upscale"
+            style={{ width: 200, height: "auto", display: "block", marginBottom: 28 }}
+          />
           <div style={{ marginBottom: 24 }}>
             <h1 style={styles.formTitle}>Welcome back</h1>
             <p style={styles.formSubtitle}>Sign in to continue to your dashboard</p>
