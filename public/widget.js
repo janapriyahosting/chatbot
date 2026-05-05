@@ -181,9 +181,23 @@
     h("span", { text: "We are online to assist you" }),
   ]);
   var headerText = h("div", { class: "cb-header-text" }, [headerTitle, headerStatus]);
-  var refreshBtn = h("button", { class: "cb-icon-btn", title: "Start a new chat", "aria-label": "Restart" }, ["⟳"]);
-  var endBtn = h("button", { class: "cb-icon-btn", title: "End chat", "aria-label": "End chat" }, ["⏹"]);
-  var minBtn = h("button", { class: "cb-icon-btn", title: "Minimise", "aria-label": "Close", onclick: toggle }, ["⌄"]);
+  function svgIcon(inner) {
+    var w = document.createElement("span");
+    w.className = "cb-icon-svg";
+    w.innerHTML =
+      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
+      'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true">' + inner + '</svg>';
+    return w;
+  }
+  var ICON_REFRESH = '<polyline points="23 4 23 10 17 10"/>' +
+    '<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>';
+  var ICON_END = '<line x1="18" y1="6" x2="6" y2="18"/>' +
+    '<line x1="6" y1="6" x2="18" y2="18"/>';
+  var ICON_MIN = '<line x1="5" y1="12" x2="19" y2="12"/>';
+  var refreshBtn = h("button", { class: "cb-icon-btn", title: "Start a new chat", "aria-label": "Restart" }, [svgIcon(ICON_REFRESH)]);
+  var endBtn = h("button", { class: "cb-icon-btn", title: "End chat", "aria-label": "End chat" }, [svgIcon(ICON_END)]);
+  var minBtn = h("button", { class: "cb-icon-btn", title: "Minimise", "aria-label": "Minimise", onclick: toggle }, [svgIcon(ICON_MIN)]);
   var header = h("div", { class: "cb-header" }, [
     h("div", { class: "cb-header-left" }, [headerAvatar, headerText]),
     h("div", { class: "cb-header-right" }, [endBtn, refreshBtn, minBtn]),
