@@ -34,3 +34,13 @@ label { display: block; font-size: 12px; color: #6b7280; margin-top: 10px; }
 .spacer { flex: 1; }
 .error { color: #dc2626; font-size: 13px; margin-top: 8px; }
 code { background:#f3f4f6; padding:2px 6px; border-radius:4px; font-size:12px; }
+
+/* Mobile (≤768px) tweaks. The Layout and Inbox JS also check this breakpoint
+ * via useIsMobile — keep the threshold in sync if either changes. */
+@media (max-width: 768px) {
+  /* iOS Safari auto-zooms when focusing a text field with font-size <16px.
+   * Android Chrome doesn't zoom, but bumping the size still helps legibility. */
+  input, select, textarea, button { font-size: 16px; }
+  .btn { padding: 10px 16px; }
+}
+

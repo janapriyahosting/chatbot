@@ -6,6 +6,7 @@ import { useAuth } from "../store";
 import { EmojiPicker } from "../components/EmojiPicker";
 import { TemplatePicker } from "../components/TemplatePicker";
 import { PolishMenu } from "../components/PolishMenu";
+import { useIsMobile } from "../utils/useIsMobile";
 
 type Conv = {
   id: string; status: string; visitor_id: string; last_body?: string | null;
@@ -90,6 +91,7 @@ const BUCKET_ORDER = ["Today", "Yesterday", "Last 7 days", "Older"];
 export function Inbox() {
   const { user } = useAuth();
   const isSup = user?.role === "admin" || user?.role === "supervisor";
+  const isMobile = useIsMobile();
   const [scope, setScope] = useState<"mine" | "queue" | "all" | "closed">(isSup ? "all" : "mine");
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [convs, setConvs] = useState<Conv[]>([]);
@@ -230,10 +232,24 @@ export function Inbox() {
     } catch (e: any) { setErr(e.message); }
   };
 
+  // On mobile we collapse to a single pane: the list when nothing is
+  // selected, the detail pane when one is. The Layout's parent already
+  // gives us a flex container sized to (100dvh - mobile topbar); using
+  // height: 100% here means we fill that without double-counting the bar.
+  const showList = !isMobile || !selected;
+  const showDetail = !isMobile || !!selected;
+
   return (
     <Layout wide>
-      <div style={{ display: "flex", height: "100vh" }}>
-        <div style={{ width: 340, borderRight: "1px solid #e5e7eb", background: "#fff", display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", height: isMobile ? "100%" : "100vh", minHeight: 0 }}>
+        <div style={{
+          width: isMobile ? "100%" : 340,
+          borderRight: isMobile ? "none" : "1px solid #e5e7eb",
+          background: "#fff",
+          display: showList ? "flex" : "none",
+          flexDirection: "column",
+          minHeight: 0,
+        }}>
           <div style={{ display: "flex", padding: 6, borderBottom: "1px solid #e5e7eb", gap: 4, fontSize: 12 }}>
             {([
               ["mine", "Mine"],
@@ -317,14 +333,30 @@ export function Inbox() {
           </div>
         </div>
 
-        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{
+          flex: 1, minWidth: 0, minHeight: 0,
+          display: showDetail ? "flex" : "none",
+          flexDirection: "column",
+        }}>
           {!detail ? (
             <div style={{ margin: "auto", color: "#6b7280" }}>Select a conversation.</div>
           ) : (
             <>
               <div className="row" style={{ padding: 10, borderBottom: "1px solid #e5e7eb", background: "#fff" }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>visitor {detail.visitor_id}</div>
+                {isMobile && (
+                  <button
+                    aria-label="Back to inbox"
+                    onClick={() => setSelected(null)}
+                    style={{
+                      width: 36, height: 36, borderRadius: 6, border: "none",
+                      background: "transparent", color: "#374151", fontSize: 22, lineHeight: 1,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      padding: 0, marginRight: 4,
+                    }}
+                  >←</button>
+                )}
+                <div style={{ minWidth: 0, flex: isMobile ? 1 : undefined }}>
+                  <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>visitor {detail.visitor_id}</div>
                   <div style={{ fontSize: 12, color: "#6b7280" }}>
                     status: {detail.status}{detail.assigned_to_name ? ` · ${detail.assigned_to_name}` : ""}
                   </div>

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { useAuth } from "./store";
+import { useIsMobile } from "./utils/useIsMobile";
 
 const NAV: { to: string; label: string; icon: string; supervisorOnly?: boolean }[] = [
   { to: "/inbox", label: "Live chats", icon: "💬" },
@@ -25,6 +26,12 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
   const isAdmin = user?.role === "admin";
   const isAgent = user?.role === "agent";
   const [busy, setBusy] = useState(false);
+  const isMobile = useIsMobile();
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const location = useLocation();
+  // Auto-close the drawer on route change so tapping a nav link doesn't leave
+  // it hovering over the new page.
+  useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
   const toggleAvailable = async () => {
     if (!user || busy) return;
@@ -40,12 +47,37 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
     }
   };
 
+  // On mobile the sidebar becomes an off-canvas drawer that slides in over
+  // the content. We always render the <aside> so the drawer animation works;
+  // CSS positions it correctly per breakpoint.
+  const asideStyle: React.CSSProperties = isMobile
+    ? {
+        width: 240, background: "#273b84", color: "#fff",
+        display: "flex", flexDirection: "column",
+        position: "fixed", top: 0, left: 0, height: "100vh",
+        transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform .2s ease-out",
+        zIndex: 50,
+        boxShadow: drawerOpen ? "2px 0 12px rgba(0,0,0,.25)" : "none",
+      }
+    : {
+        width: 220, background: "#273b84", color: "#fff",
+        display: "flex", flexDirection: "column",
+        position: "sticky", top: 0, height: "100vh",
+      };
+
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
-      <aside style={{
-        width: 220, background: "#273b84", color: "#fff",
-        display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh",
-      }}>
+      {isMobile && drawerOpen && (
+        <div
+          onClick={() => setDrawerOpen(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,.45)",
+            zIndex: 45,
+          }}
+        />
+      )}
+      <aside style={asideStyle}>
         <div style={{
           padding: "16px 18px", borderBottom: "1px solid rgba(255,255,255,.12)",
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -104,8 +136,41 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
           </button>
         </div>
       </aside>
-      <main style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
-        <div style={{ maxWidth: wide ? "100%" : 1100, margin: wide ? 0 : "0 auto", padding: wide ? 0 : "24px 24px" }}>
+      <main style={isMobile ? {
+        flex: 1, minWidth: 0,
+        display: "flex", flexDirection: "column",
+        height: "100dvh", overflow: "hidden",
+      } : {
+        flex: 1, minWidth: 0, overflow: "auto",
+      }}>
+        {isMobile && (
+          <div style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "8px 12px", height: 48, flexShrink: 0,
+            background: "#273b84", color: "#fff",
+            boxSizing: "border-box",
+          }}>
+            <button
+              aria-label="Open menu"
+              onClick={() => setDrawerOpen(true)}
+              style={{
+                width: 36, height: 36, borderRadius: 6, border: "none",
+                background: "transparent", color: "#fff", fontSize: 22, lineHeight: 1,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                padding: 0,
+              }}
+            >☰</button>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>Janapriya Chatbot</div>
+          </div>
+        )}
+        <div style={isMobile ? {
+          flex: 1, minHeight: 0, overflow: "auto",
+          maxWidth: "100%", padding: wide ? 0 : 16, width: "100%",
+        } : {
+          maxWidth: wide ? "100%" : 1100,
+          margin: wide ? 0 : "0 auto",
+          padding: wide ? 0 : "24px 24px",
+        }}>
           {children}
         </div>
       </main>

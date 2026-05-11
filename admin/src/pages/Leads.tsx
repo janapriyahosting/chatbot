@@ -63,7 +63,7 @@ export function Leads() {
         </div>
         {err && <div className="error">{err}</div>}
         <div className="card" style={{ padding: 0, overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: "#f3f4f6", textAlign: "left" }}>
                 {["When", "Name", "Phone", "Email", "OTP", "Details", "UTM source", "Campaign", "gclid"].map((c) => (
