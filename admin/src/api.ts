@@ -37,6 +37,12 @@ export const api = {
     req<any>("POST", "/api/sites", body),
   updateSite: (id: string, body: { name?: string; domain?: string; allowed_origins?: string[] }) =>
     req<any>("PATCH", `/api/sites/${id}`, body),
+  getPushPublicKey: () =>
+    req<{ enabled: boolean; public_key?: string }>("GET", "/push/public-key"),
+  subscribePush: (body: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    req<void>("POST", "/push/subscribe", body),
+  unsubscribePush: (endpoint: string) =>
+    req<void>("POST", "/push/unsubscribe", { endpoint }),
   listFlows: (botId: string) => req<any[]>("GET", `/api/bots/${botId}/flows`),
   createFlow: (botId: string, body: { name: string; definition: any }) =>
     req<any>("POST", `/api/bots/${botId}/flows`, body),

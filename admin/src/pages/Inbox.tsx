@@ -7,6 +7,7 @@ import { EmojiPicker } from "../components/EmojiPicker";
 import { TemplatePicker } from "../components/TemplatePicker";
 import { PolishMenu } from "../components/PolishMenu";
 import { useIsMobile } from "../utils/useIsMobile";
+import { enablePush, getPushState, type PushState } from "../utils/push";
 
 type Conv = {
   id: string; status: string; visitor_id: string; last_body?: string | null;
@@ -113,12 +114,36 @@ export function Inbox() {
     if (c) setSelected(c);
   }, [params]);
 
+  // Push notifications: read the current state on mount; if the user has
+  // already granted permission but doesn't have a subscription yet (e.g.
+  // they granted on a different device, or signed out and back in),
+  // silently subscribe. The banner only appears for the "default" state.
+  const [pushState, setPushState] = useState<PushState>({ kind: "unsupported" });
   useEffect(() => {
-    // Ask for notification permission once when the agent first opens the inbox.
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
+    let cancelled = false;
+    (async () => {
+      const s = await getPushState();
+      if (cancelled) return;
+      if (s.kind === "permission-default" && typeof Notification !== "undefined"
+          && Notification.permission === "granted") {
+        // Permission already granted, just need to (re-)subscribe.
+        const after = await enablePush().catch(() => s);
+        if (!cancelled) setPushState(after);
+      } else {
+        setPushState(s);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
+  const [pushBusy, setPushBusy] = useState(false);
+  const requestPush = async () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    try { setPushState(await enablePush()); }
+    finally { setPushBusy(false); }
+  };
+  const [pushBannerDismissed, setPushBannerDismissed] = useState(false);
+  const showPushBanner = pushState.kind === "permission-default" && !pushBannerDismissed;
 
   useEffect(() => {
     if (searching) return; // pause polling while search results are shown
@@ -250,6 +275,30 @@ export function Inbox() {
           flexDirection: "column",
           minHeight: 0,
         }}>
+          {showPushBanner && (
+            <div style={{
+              padding: "10px 12px", background: "#eff6ff", borderBottom: "1px solid #dbeafe",
+              display: "flex", alignItems: "center", gap: 10, fontSize: 13,
+            }}>
+              <span style={{ fontSize: 18 }}>🔔</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: "#1e3a8a" }}>Get notified for new chats</div>
+                <div style={{ color: "#475569", fontSize: 12 }}>
+                  Even when this tab is closed. You can revoke anytime in your browser settings.
+                </div>
+              </div>
+              <button className="btn" onClick={requestPush} disabled={pushBusy}
+                style={{ padding: "6px 10px", fontSize: 12 }}>
+                {pushBusy ? "…" : "Enable"}
+              </button>
+              <button onClick={() => setPushBannerDismissed(true)}
+                aria-label="Dismiss"
+                style={{
+                  border: "none", background: "transparent", color: "#64748b",
+                  cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 4,
+                }}>×</button>
+            </div>
+          )}
           <div style={{ display: "flex", padding: 6, borderBottom: "1px solid #e5e7eb", gap: 4, fontSize: 12 }}>
             {([
               ["mine", "Mine"],

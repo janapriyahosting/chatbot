@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.email_sender import send_email
+from app.core.push import send_push_to_user
 from app.core.working_hours import is_office_open
 from app.models.conversation import (
     Assignment,
@@ -81,6 +82,16 @@ async def assign_conversation(
     # Fire the email out-of-band so a flaky mail server can't slow down the
     # assignment flow. Failures are swallowed inside send_email.
     asyncio.create_task(_email_agent(agent, conv))
+    # Fan out a Web Push to every device the agent has subscribed. No-op if
+    # VAPID isn't configured or the agent has no subscriptions.
+    asyncio.create_task(send_push_to_user(
+        agent.id,
+        {
+            "title": "New chat assigned",
+            "body": f"A visitor is waiting for you — {conv.visitor_id[:12]}…",
+            "conversation_id": str(conv.id),
+        },
+    ))
     return assignment
 
 

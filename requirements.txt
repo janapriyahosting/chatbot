@@ -17,3 +17,8 @@ simpleeval==1.0.3
 python-multipart==0.0.20
 
 aiosmtplib==3.0.2
+
+# Web Push (agent PWA push notifications). pywebpush handles VAPID
+# signing + the encryption envelope; cryptography is a transitive
+# dep but pinned so deploys don't pick up a surprise major.
+pywebpush==2.3.0

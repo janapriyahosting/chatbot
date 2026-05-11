@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # and schema. Default off; flip on for dev/staging only.
     docs_enabled: bool = False
 
+    # Web Push (agent PWA). All three are optional; if any is missing, push
+    # is silently disabled — agents still get in-tab notifications. Generate
+    # with `python scripts/gen_vapid.py` and paste the output into .env.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_contact_email: str = ""
+
     @field_validator("jwt_secret")
     @classmethod
     def _jwt_secret_strong(cls, v: str) -> str:

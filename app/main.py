@@ -19,6 +19,7 @@ from app.api.analytics import router as analytics_router
 from app.api.api_keys import router as api_keys_router
 from app.api.leads import router as leads_router
 from app.api.oauth_o365 import router as o365_router
+from app.api.push import router as push_router
 from app.api.settings import router as settings_router
 from app.api.sites import router as sites_router
 from app.api.templates import router as templates_router
@@ -158,6 +159,7 @@ app.include_router(api_keys_router)
 app.include_router(templates_router)
 app.include_router(settings_router)
 app.include_router(o365_router)
+app.include_router(push_router)
 
 @app.get("/test/{bot_key}", include_in_schema=False, response_class=HTMLResponse)
 async def widget_test(bot_key: str, title: str = "Chat with us") -> HTMLResponse:
