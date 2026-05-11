@@ -320,11 +320,33 @@
         desc ? h("div", { style: "font-size:12px;color:#6b7280;margin-top:4px", text: desc }) : null,
       ]);
       var dlLabel = (cfg.original_filename || "").replace(/[^\w.\-]+/g, "_") || (title + "." + fmt.toLowerCase());
+      // Route through /widget/download/<filename> so the response carries
+      // Content-Disposition: attachment with the original filename. This
+      // bypasses Chrome's inline PDF viewer (which can drop the extension)
+      // and works cross-origin where the <a download> attribute is ignored.
+      var dlHref = url;
+      var basename = (cfg.url || "").split("/").pop();
+      if (basename) dlHref = absUrl("/widget/download/" + encodeURIComponent(basename) + "?name=" + encodeURIComponent(dlLabel));
       var dlBtn = h("a", {
-        href: url, target: "_blank", rel: "noopener", download: dlLabel,
+        href: dlHref, target: "_blank", rel: "noopener", download: dlLabel,
         style: "flex-shrink:0;padding:6px 12px;border-radius:6px;background:#273b84;color:#fff;text-decoration:none;font-size:12px;font-weight:600",
         text: "↓ Open"
       });
+      // Notify backend so the configured email-on-click hook can fire.
+      // Fire-and-forget; the download itself proceeds via the link click.
+      if (cfg.node_id) {
+        dlBtn.addEventListener("click", function () {
+          if (!state.conversationId) return;
+          try {
+            fetch(API_BASE + "/widget/document-clicked", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ conversation_id: state.conversationId, node_id: cfg.node_id }),
+              keepalive: true,
+            }).catch(function () {});
+          } catch (e) { /* ignore */ }
+        });
+      }
       var docCard = h("div", {
         style: "display:flex;align-items:center;gap:10px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;max-width:320px"
       }, [docIcon, docInfo, dlBtn]);

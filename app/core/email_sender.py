@@ -47,8 +47,13 @@ async def send_email(
     subject: str,
     body_text: str,
     body_html: str | None = None,
+    cc: list[str] | None = None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> bool:
-    """Send a transactional email. Never raises — best-effort delivery only."""
+    """Send a transactional email. Never raises — best-effort delivery only.
+
+    `attachments` is a list of (filename, raw_bytes, mime_type) tuples.
+    """
     cfg = await _load_smtp_config()
     if not (cfg["host"] and cfg["username"] and cfg["password"]):
         log.debug("SMTP not configured; skipping send to %s", to)
@@ -56,13 +61,24 @@ async def send_email(
 
     if isinstance(to, str):
         to = [to]
+    cc = [c for c in (cc or []) if c]
     msg = EmailMessage()
     msg["From"] = cfg["from_addr"] or cfg["username"]
     msg["To"] = ", ".join(to)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg["Subject"] = subject
     msg.set_content(body_text)
     if body_html:
         msg.add_alternative(body_html, subtype="html")
+    for fname, data, mime in attachments or []:
+        maintype, _, subtype = (mime or "application/octet-stream").partition("/")
+        msg.add_attachment(
+            data,
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=fname,
+        )
 
     try:
         if cfg["use_ssl"]:

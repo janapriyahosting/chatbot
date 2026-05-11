@@ -67,7 +67,11 @@ async def _run_node(node: dict, ctx: dict[str, Any]) -> NodeResult:
         return NodeResult(ends=True)
 
     if t in OUTPUT_TYPES:
-        return NodeResult(outputs=[{"kind": t, "config": cfg}])
+        # Document nodes need their source node_id surfaced so the widget can
+        # report click events back to /widget/document-clicked (used by the
+        # send-email-on-click feature). Other output kinds don't need it.
+        out_cfg = {**cfg, "node_id": node["id"]} if t == "document" else cfg
+        return NodeResult(outputs=[{"kind": t, "config": out_cfg}])
 
     if t == "buttons":
         return NodeResult(outputs=[{"kind": "buttons", "config": cfg}], awaits_input=True)

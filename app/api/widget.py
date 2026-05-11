@@ -593,6 +593,181 @@ async def visitor_upload(
     return {"url": f"/static/uploads/{dest.name}", "size": total}
 
 
+import re as _re
+from fastapi.responses import FileResponse as _FileResponse
+
+# Random-hex filename pattern produced by both upload paths (admin + widget).
+_DL_FILENAME_RE = _re.compile(r"^[0-9a-f]{16,}\.[A-Za-z0-9]+$")
+
+
+_EMAIL_RE = _re.compile(r"^[\w.+-]+@[\w-]+\.[\w.-]+$")
+
+
+def _find_visitor_email(answers: dict | None) -> str | None:
+    """Best-effort extraction of the visitor's email from the conversation
+    `answers` dict. Looks at common keys, then any nested `form` map, then
+    any string value that matches an email-shaped regex."""
+    if not isinstance(answers, dict):
+        return None
+    for key in ("email", "Email", "email_address", "emailAddress"):
+        v = answers.get(key)
+        if isinstance(v, str) and _EMAIL_RE.match(v.strip()):
+            return v.strip()
+    form = answers.get("form")
+    if isinstance(form, dict):
+        for v in form.values():
+            if isinstance(v, str) and _EMAIL_RE.match(v.strip()):
+                return v.strip()
+    for v in answers.values():
+        if isinstance(v, str) and _EMAIL_RE.match(v.strip()):
+            return v.strip()
+    return None
+
+
+def _parse_cc_list(raw: str | list | None) -> list[str]:
+    """Accept either a comma/newline-separated string or a list."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        items = raw
+    else:
+        items = _re.split(r"[,\n;]+", str(raw))
+    return [x.strip() for x in items if x and isinstance(x, str) and _EMAIL_RE.match(x.strip())]
+
+
+class DocumentClickRequest(BaseModel):
+    conversation_id: uuid.UUID
+    node_id: str
+
+
+@router.post("/document-clicked")
+async def widget_document_clicked(
+    payload: DocumentClickRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    # Tight cap — this endpoint triggers an email send; unbounded calls = mail spam.
+    await _rate_limit(
+        request,
+        action="docclick",
+        conversation_id=payload.conversation_id,
+        per_ip_max=20,
+        per_conv_max=10,
+        window=60,
+    )
+    """Fired by the widget when a visitor clicks the download button on a
+    document bubble. Sends a configured email (if enabled on that node) and
+    de-dupes per-conversation so multiple clicks don't fan out emails.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+
+    conv = await db.get(Conversation, payload.conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="conversation not found")
+
+    flow = await _get_flow_for_bot(conv.bot_id, db)
+    nodes = (flow.definition or {}).get("nodes") or []
+    node = next(
+        (n for n in nodes if n.get("id") == payload.node_id and n.get("type") == "document"),
+        None,
+    )
+    if not node:
+        return {"ok": True, "skipped": "node not found"}
+
+    cfg = node.get("config") or {}
+    if not cfg.get("send_email"):
+        return {"ok": True, "skipped": "email disabled"}
+
+    # Per-conversation de-dup: don't email twice for the same node.
+    sent_set = set((conv.context or {}).get("emailed_doc_nodes") or [])
+    if payload.node_id in sent_set:
+        return {"ok": True, "skipped": "already sent"}
+
+    customer_email = _find_visitor_email((conv.context or {}).get("answers"))
+    cc_list = _parse_cc_list(cfg.get("cc_list"))
+    if not customer_email:
+        log.info("doc-click: no visitor email captured for conv=%s; skipping", conv.id)
+        return {"ok": True, "skipped": "no visitor email"}
+
+    file_url = (cfg.get("url") or "").strip()
+    abs_url = file_url
+    if file_url.startswith("/"):
+        # Reuse public_base_url if configured; otherwise use whatever is on the request.
+        base = (getattr(settings, "public_base_url", "") or "").rstrip("/")
+        abs_url = f"{base}{file_url}" if base else file_url
+
+    title = cfg.get("title") or cfg.get("original_filename") or "your document"
+    subject = (cfg.get("email_subject") or f"Your brochure: {title}").strip()
+    body_text = (
+        cfg.get("email_body")
+        or f"Hi,\n\nThank you for your interest. You can access {title} here:\n{abs_url}\n\nRegards"
+    )
+
+    attachments: list[tuple[str, bytes, str]] = []
+    try:
+        if file_url.startswith("/static/uploads/"):
+            fname = file_url.rsplit("/", 1)[-1]
+            path = _WIDGET_UPLOAD_ROOT / fname
+            if path.exists() and path.stat().st_size <= 10 * 1024 * 1024:
+                with path.open("rb") as f:
+                    data = f.read()
+                attachments.append((
+                    cfg.get("original_filename") or fname,
+                    data,
+                    cfg.get("content_type") or "application/octet-stream",
+                ))
+    except Exception as e:
+        log.warning("doc-click attachment build failed: %s", e)
+
+    from app.core.email_sender import send_email
+    sent = await send_email(
+        to=customer_email,
+        subject=subject,
+        body_text=body_text,
+        cc=cc_list or None,
+        attachments=attachments or None,
+    )
+    if sent:
+        ctx = conv.context or {}
+        sent_list = list(ctx.get("emailed_doc_nodes") or [])
+        if payload.node_id not in sent_list:
+            sent_list.append(payload.node_id)
+            ctx["emailed_doc_nodes"] = sent_list
+            conv.context = ctx
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(conv, "context")
+            await db.commit()
+    return {"ok": True, "sent": sent, "to": customer_email, "cc": cc_list, "attached": bool(attachments)}
+
+
+@router.get("/download/{filename}")
+async def download_upload(filename: str, name: str | None = None):
+    """Serve an uploaded file as a forced attachment with the original filename.
+
+    Bypasses Chrome's inline PDF viewer (which can drop the extension when
+    saving) and works cross-origin where the <a download> attribute is ignored.
+    """
+    if not _DL_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    path = _WIDGET_UPLOAD_ROOT / filename
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="not found")
+    if _WIDGET_UPLOAD_ROOT.resolve() not in resolved.parents:
+        raise HTTPException(status_code=400, detail="invalid path")
+
+    safe = _re.sub(r"[^\w.\-]+", "_", name) if name else filename
+    if not safe or safe in {".", ".."}:
+        safe = filename
+    return _FileResponse(
+        resolved,
+        filename=safe,
+        media_type="application/octet-stream",
+    )
+
+
 @router.post("/message", response_model=MessageOut)
 async def send_message(
     payload: WidgetMessageRequest,

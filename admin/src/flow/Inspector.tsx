@@ -226,6 +226,45 @@ export function NodeInspector({
           <BInput value={cfg.description || ""} onCommit={(v) => set("description", v)} placeholder="e.g., Master plan, pricing, amenities" />
           <label>Caption (optional, shown below card)</label>
           <BInput value={cfg.caption || ""} onCommit={(v) => set("caption", v)} />
+
+          <div style={{ marginTop: 12, padding: 8, border: "1px solid #e5e7eb", borderRadius: 6 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, marginTop: 0 }}>
+              <input type="checkbox" checked={!!cfg.send_email} onChange={(e) => set("send_email", e.target.checked)} />
+              Email this document to the visitor when they click download
+            </label>
+            {cfg.send_email && (
+              <>
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                  The visitor's email is read from the conversation's form/input answers (key
+                  <code> email</code> or any email-shaped field). If no email was captured,
+                  the send is skipped.
+                </div>
+                <label>CC list (comma-separated)</label>
+                <BInput
+                  value={cfg.cc_list || ""}
+                  onCommit={(v) => set("cc_list", v)}
+                  placeholder="e.g., narendhar@janapriyaupscale.com, sales@…"
+                />
+                <label>Email subject (optional)</label>
+                <BInput
+                  value={cfg.email_subject || ""}
+                  onCommit={(v) => set("email_subject", v)}
+                  placeholder={`Your brochure: ${cfg.title || "<title>"}`}
+                />
+                <label>Email body (optional)</label>
+                <BTextArea
+                  value={cfg.email_body || ""}
+                  onCommit={(v) => set("email_body", v)}
+                  placeholder="Hi,&#10;&#10;Thank you for your interest. You can access your document at the link below."
+                  style={{ minHeight: 80 }}
+                />
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>
+                  Files under 10 MB are attached directly; larger ones are sent as a download link.
+                  Each visitor only receives one email per document node, even if they click multiple times.
+                </div>
+              </>
+            )}
+          </div>
         </>
       )}
 

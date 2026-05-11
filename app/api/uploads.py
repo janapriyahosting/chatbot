@@ -43,7 +43,7 @@ _DOCUMENT_MIMES = {
     "application/octet-stream",  # common fallback from browsers
     "text/plain", "text/csv", "text/rtf",
 }
-_MAX_BYTES = 25 * 1024 * 1024  # 25 MB — comfortably fits most brochures
+_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 @router.post("")
@@ -66,7 +66,7 @@ async def upload(file: UploadFile = FFile(...)) -> dict:
             if total > _MAX_BYTES:
                 out.close()
                 dest.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="file too large (max 20 MB)")
+                raise HTTPException(status_code=413, detail="file too large (max 100 MB)")
             out.write(chunk)
 
     return {
