@@ -1,7 +1,9 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
+import valkey.asyncio as _valkey
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,27 @@ from app.models.api_key import ApiKey
 from app.models.user import User, UserRole
 
 ALGO = "HS256"
+ISSUER = "chatbot-api"
+
+# Valkey-backed JWT revocation: jti → present-until-exp.
+_JTI_REVOKED_PREFIX = f"{settings.valkey_prefix}jwt:revoked:"
+_valkey_client: _valkey.Valkey | None = None
+
+
+def _vk() -> _valkey.Valkey:
+    global _valkey_client
+    if _valkey_client is None:
+        _valkey_client = _valkey.from_url(settings.valkey_url, decode_responses=True)
+    return _valkey_client
+
+# A real bcrypt hash of an unguessable random value, used to equalize timing
+# when the requested user doesn't exist (or is disabled). Without this, the
+# bcrypt call is skipped for missing users and an attacker can distinguish
+# "no such email" from "wrong password" by response latency.
+_DUMMY_PASSWORD_HASH = bcrypt.hashpw(
+    f"unreachable-{datetime.now(timezone.utc).timestamp()}".encode(),
+    bcrypt.gensalt(),
+).decode()
 
 
 def hash_password(plain: str) -> str:
@@ -25,15 +48,61 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
+def dummy_verify_password(plain: str) -> None:
+    """Run bcrypt against a discarded hash, purely to equalize login timing."""
+    try:
+        bcrypt.checkpw(plain.encode(), _DUMMY_PASSWORD_HASH.encode())
+    except ValueError:
+        pass
+
+
 def make_token(user_id: str, role: str) -> str:
-    exp = datetime.now(timezone.utc) + timedelta(hours=settings.jwt_ttl_hours)
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(hours=settings.jwt_ttl_hours)
     return jwt.encode(
-        {"sub": user_id, "role": role, "exp": exp}, settings.jwt_secret, algorithm=ALGO
+        {
+            "iss": ISSUER,
+            "sub": user_id,
+            "role": role,
+            "iat": now,
+            "exp": exp,
+            "jti": uuid.uuid4().hex,
+        },
+        settings.jwt_secret,
+        algorithm=ALGO,
     )
 
 
 def decode_token(token: str) -> dict:
-    return jwt.decode(token, settings.jwt_secret, algorithms=[ALGO])
+    # `require` forces the listed claims to be present — without it, a token
+    # forged by a sibling service that omits e.g. exp would silently decode.
+    return jwt.decode(
+        token,
+        settings.jwt_secret,
+        algorithms=[ALGO],
+        issuer=ISSUER,
+        options={"require": ["exp", "iat", "sub", "jti", "iss"]},
+    )
+
+
+async def revoke_jti(jti: str, exp_unix: int | float | None) -> None:
+    """Add a jti to the revocation set with TTL = remaining seconds till exp.
+
+    If exp is None or in the past, fall back to the full TTL so we always
+    have *some* coverage. Tokens fail decode after exp anyway, so the worst
+    case here is wasting a small amount of Valkey memory.
+    """
+    if exp_unix is None:
+        ttl = settings.jwt_ttl_hours * 3600
+    else:
+        ttl = int(exp_unix - datetime.now(timezone.utc).timestamp())
+        if ttl <= 0:
+            return  # already expired; jwt.decode will reject
+    await _vk().set(_JTI_REVOKED_PREFIX + jti, "1", ex=ttl)
+
+
+async def is_jti_revoked(jti: str) -> bool:
+    return bool(await _vk().exists(_JTI_REVOKED_PREFIX + jti))
 
 
 async def _user_from_api_key(
@@ -76,7 +145,15 @@ async def current_user(
             raise HTTPException(status_code=401, detail="token expired")
         except jwt.InvalidTokenError:
             raise HTTPException(status_code=401, detail="invalid token")
-        user = await db.get(User, payload["sub"])
+        if await is_jti_revoked(payload["jti"]):
+            raise HTTPException(status_code=401, detail="token revoked")
+        # `sub` is a UUID hex string — guard against tokens with a
+        # non-UUID `sub` from a future misconfigured signer.
+        try:
+            user_id = uuid.UUID(payload["sub"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=401, detail="invalid token")
+        user = await db.get(User, user_id)
         if not user or not user.is_active:
             raise HTTPException(status_code=401, detail="user not found or disabled")
         return user

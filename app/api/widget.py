@@ -13,7 +13,7 @@ from app.core.assignment import assign_conversation
 from app.core.config import settings
 from app.core.db import get_session
 from app.core.geo import is_allowed_region
-from app.core.otp import normalize_phone, send_otp, verify_otp
+from app.core.otp import OtpRateLimited, normalize_phone, send_otp, verify_otp
 from app.runtime.form_types import validate_field, validate_form
 from app.models.bot import Bot
 from app.models.conversation import (
@@ -26,6 +26,9 @@ from app.models.conversation import (
 )
 from app.models.flow import Flow
 from app.models.lead import Lead, LeadUtm
+from app.models.site import Site
+
+import valkey.asyncio as _valkey
 from app.runtime.engine import advance
 from app.schemas.widget import (
     MessageOut,
@@ -46,6 +49,81 @@ _WIDGET_UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent / "public" /
 _WIDGET_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 _WIDGET_ALLOWED_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf", ".mp4", ".webm", ".mov"}
 _WIDGET_MAX_BYTES = 10 * 1024 * 1024  # 10 MB for visitors
+
+# --- Valkey-backed widget rate limits ------------------------------------
+# Tight enough to deter LLM-cost abuse and disk DoS, loose enough that a
+# normal human chat never trips them. Tuned per action below.
+_WIDGET_RL_PREFIX = f"{settings.valkey_prefix}widget:"
+_widget_vk: _valkey.Valkey | None = None
+
+
+def _wvk() -> _valkey.Valkey:
+    global _widget_vk
+    if _widget_vk is None:
+        _widget_vk = _valkey.from_url(settings.valkey_url, decode_responses=True)
+    return _widget_vk
+
+
+async def _enforce_origin(
+    request: Request, site_id: uuid.UUID | None, db: AsyncSession
+) -> None:
+    """403 if the Origin header doesn't match the site's allowed_origins.
+
+    Permissive defaults: no Origin header (server-to-server, native app, or
+    no-CORS context) and sites without an allowed_origins list both pass.
+    The migration backfills the list from each site's existing `domain`, so
+    every site is gated immediately on rollout without admin action.
+    """
+    origin = request.headers.get("origin")
+    if not origin or site_id is None:
+        return
+    site = await db.get(Site, site_id)
+    if not site or not site.allowed_origins:
+        return
+    if origin not in site.allowed_origins:
+        raise HTTPException(status_code=403, detail="origin not allowed")
+
+
+async def _enforce_origin_for_conv(
+    request: Request, conv: Conversation, db: AsyncSession
+) -> None:
+    if not request.headers.get("origin"):
+        return
+    bot = await db.get(Bot, conv.bot_id)
+    await _enforce_origin(request, bot.site_id if bot else None, db)
+
+
+async def _rate_limit(
+    request: Request,
+    *,
+    action: str,
+    conversation_id: uuid.UUID | None = None,
+    per_ip_max: int = 60,
+    per_conv_max: int = 30,
+    window: int = 60,
+) -> None:
+    """Token-bucket rate limit on widget calls.
+
+    EXPIRE is set only on first INCR so the window doesn't slide forward
+    on every call. 429 on over-limit.
+    """
+    vk = _wvk()
+    ip = request.client.host if request.client else "unknown"
+
+    ip_key = f"{_WIDGET_RL_PREFIX}ip:{action}:{ip}"
+    n = await vk.incr(ip_key)
+    if n == 1:
+        await vk.expire(ip_key, window)
+    if n > per_ip_max:
+        raise HTTPException(status_code=429, detail="too many requests")
+
+    if conversation_id is not None:
+        c_key = f"{_WIDGET_RL_PREFIX}conv:{action}:{conversation_id}"
+        m = await vk.incr(c_key)
+        if m == 1:
+            await vk.expire(c_key, window)
+        if m > per_conv_max:
+            raise HTTPException(status_code=429, detail="too many requests")
 
 
 async def _get_flow_for_bot(bot_id: uuid.UUID, db: AsyncSession) -> Flow:
@@ -117,10 +195,17 @@ async def _handle_otp_side_effects(
                     {"kind": "text", "config": {"body": "We couldn't read your phone number. Please start again."}}
                 )
             else:
+                ip = request.client.host if request and request.client else None
                 try:
-                    await send_otp(phone)
+                    await send_otp(phone, ip=ip)
                     ctx["otp_sent_for"] = phone
                     ctx["otp_attempts"] = 0
+                except OtpRateLimited:
+                    # Don't reveal whether the cap was per-phone or per-IP —
+                    # surface a generic message so attackers can't probe.
+                    extras.append(
+                        {"kind": "text", "config": {"body": "Too many OTP requests. Please try again later."}}
+                    )
                 except Exception:
                     extras.append(
                         {"kind": "text", "config": {"body": "Couldn't send OTP right now. Please try later."}}
@@ -182,10 +267,15 @@ async def start_session(
     request: Request,
     db: AsyncSession = Depends(get_session),
 ) -> StepResponse:
+    # Per-IP rate limit; no conversation_id yet (one is about to be created).
+    await _rate_limit(request, action="session", per_ip_max=30, window=60)
+
     bot_result = await db.execute(select(Bot).where(Bot.public_key == payload.bot_key))
     bot = bot_result.scalars().first()
     if not bot or not bot.is_active:
         raise HTTPException(status_code=404, detail="bot not found")
+
+    await _enforce_origin(request, bot.site_id, db)
 
     flow = await _get_flow_for_bot(bot.id, db)
 
@@ -457,6 +547,7 @@ from fastapi import UploadFile as _UploadFile
 @router.post("/upload")
 async def visitor_upload(
     conversation_id: uuid.UUID,
+    request: Request,
     file: _UploadFile = _FFile(...),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -472,6 +563,17 @@ async def visitor_upload(
     conv = await db.get(Conversation, conversation_id)
     if not conv or conv.status == ConversationStatus.closed:
         raise HTTPException(status_code=404, detail="conversation not found")
+
+    await _enforce_origin_for_conv(request, conv, db)
+    # Tighter cap on uploads — each one writes to disk and can be expensive.
+    await _rate_limit(
+        request,
+        action="upload",
+        conversation_id=conv.id,
+        per_ip_max=20,
+        per_conv_max=5,
+        window=60,
+    )
 
     ext = _P(file.filename or "").suffix.lower()
     if ext not in _WIDGET_ALLOWED_EXTS:
@@ -493,7 +595,9 @@ async def visitor_upload(
 
 @router.post("/message", response_model=MessageOut)
 async def send_message(
-    payload: WidgetMessageRequest, db: AsyncSession = Depends(get_session)
+    payload: WidgetMessageRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
 ) -> MessageOut:
     conv = await db.get(Conversation, payload.conversation_id)
     if not conv:
@@ -504,6 +608,17 @@ async def send_message(
         ConversationStatus.ai,
     ):
         raise HTTPException(status_code=409, detail="not in chat mode")
+
+    await _enforce_origin_for_conv(request, conv, db)
+    # /message hits the LLM in AI mode — keep this tight.
+    await _rate_limit(
+        request,
+        action="message",
+        conversation_id=conv.id,
+        per_ip_max=60,
+        per_conv_max=30,
+        window=60,
+    )
     msg = Message(
         conversation_id=conv.id,
         sender=MessageSender.visitor,
@@ -570,6 +685,16 @@ async def reply(
         raise HTTPException(status_code=404, detail="conversation not found")
     if conv.status == ConversationStatus.closed:
         raise HTTPException(status_code=410, detail="conversation closed")
+
+    await _enforce_origin_for_conv(request, conv, db)
+    await _rate_limit(
+        request,
+        action="reply",
+        conversation_id=conv.id,
+        per_ip_max=60,
+        per_conv_max=30,
+        window=60,
+    )
 
     flow = await _get_flow_for_bot(conv.bot_id, db)
 

@@ -4,13 +4,13 @@ advance() runs nodes until it hits an input-awaiting node (buttons/form/input)
 or an end/terminal. It returns the list of rendered outputs for the widget
 and the new `awaiting` descriptor (if any).
 """
+import json as _json
 from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
-
 from app.runtime.conditions import evaluate as eval_condition
 from app.runtime.conditions import rules_to_expression
+from app.runtime.http_safe import UnsafeRequest, safe_request
 from app.runtime.template import render
 
 OUTPUT_TYPES = {"text", "image", "video", "carousel", "document"}
@@ -155,29 +155,36 @@ async def _run_node(node: dict, ctx: dict[str, Any]) -> NodeResult:
         elif atype == "api_key" and auth.get("header") and auth.get("value"):
             headers[auth["header"]] = auth["value"]
 
-        # Choose how the body is serialised. `form` sends
-        # application/x-www-form-urlencoded — required by OAuth password grant
-        # and many legacy APIs. Default stays `json` for backward compat.
-        request_kwargs: dict[str, Any] = {"method": method, "url": url, "headers": headers}
+        # Body serialisation: `form` sends application/x-www-form-urlencoded
+        # (needed by OAuth password grant and legacy APIs). Default `json`.
+        body_kwargs: dict[str, Any] = {}
         if body:
             if body_type == "form":
-                request_kwargs["data"] = body
+                body_kwargs["data"] = body
             else:
-                request_kwargs["json"] = body
+                body_kwargs["json"] = body
 
         status = 0
         ok = False
         resp_headers: dict[str, str] = {}
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.request(**request_kwargs)
-                status = r.status_code
-                ok = r.is_success
-                resp_headers = dict(r.headers)
+            status, resp_headers, raw = await safe_request(
+                method, url, headers=headers, **body_kwargs
+            )
+            ok = 200 <= status < 300
+            try:
+                parsed = _json.loads(raw)
+            except (ValueError, TypeError):
                 try:
-                    parsed = r.json()
+                    parsed = raw.decode("utf-8", errors="replace")
                 except Exception:
-                    parsed = r.text
+                    parsed = ""
+        except UnsafeRequest as e:
+            # Flow author tried to hit an internal/private target. Surface
+            # a clear marker in the response context so the flow can branch
+            # on api.<save_as>._ok == false without exposing details to the
+            # visitor.
+            parsed = {"error": f"request blocked: {e}"}
         except Exception as e:
             parsed = {"error": str(e)}
 

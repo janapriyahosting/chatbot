@@ -1,3 +1,4 @@
+import hmac
 import logging
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -38,8 +39,12 @@ def _extract_inbound(payload: dict) -> tuple[str, str] | None:
 async def inbound(request: Request, x_webhook_secret: str | None = Header(default=None)):
     cfg = await whatsapp_send._load_whatsapp_config()
 
-    if cfg["webhook_secret"] and x_webhook_secret != cfg["webhook_secret"]:
-        raise HTTPException(status_code=401, detail="bad webhook secret")
+    if cfg["webhook_secret"]:
+        # constant-time compare to avoid leaking the secret via timing.
+        if not x_webhook_secret or not hmac.compare_digest(
+            x_webhook_secret, cfg["webhook_secret"]
+        ):
+            raise HTTPException(status_code=401, detail="bad webhook secret")
 
     payload = await request.json()
     parsed = _extract_inbound(payload)

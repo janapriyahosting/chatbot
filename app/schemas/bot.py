@@ -9,6 +9,13 @@ from app.models.bot import BotChannel
 class SiteCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     domain: str = Field(min_length=1, max_length=255)
+    allowed_origins: list[str] = Field(default_factory=list)
+
+
+class SiteUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    domain: str | None = Field(default=None, min_length=1, max_length=255)
+    allowed_origins: list[str] | None = None
 
 
 class SiteOut(BaseModel):
@@ -17,6 +24,7 @@ class SiteOut(BaseModel):
     id: uuid.UUID
     name: str
     domain: str
+    allowed_origins: list[str]
     created_at: datetime
 
 

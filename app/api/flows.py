@@ -128,10 +128,16 @@ async def publish_flow(
     flow = await db.get(Flow, flow_id)
     if not flow or flow.bot_id != bot_id:
         raise HTTPException(status_code=404, detail="flow not found")
+    # Re-validate the saved definition before flipping the published flag —
+    # otherwise typos saved before a guard was added (e.g. a document node
+    # with `url: "MyBrochure"`) would silently go live.
+    warnings = _validate_definition(flow.definition or {})
     flow.is_published = True
     await db.commit()
     await db.refresh(flow)
-    return flow
+    out = FlowOut.model_validate(flow)
+    out.warnings = warnings
+    return out
 
 
 @router.post("/preview")

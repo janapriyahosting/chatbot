@@ -1,13 +1,22 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+import jwt
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.db import get_session
-from app.core.security import current_user, make_token, verify_password
+from app.core.security import (
+    ALGO,
+    current_user,
+    dummy_verify_password,
+    make_token,
+    revoke_jti,
+    verify_password,
+)
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,10 +51,15 @@ async def login(
 ) -> LoginResponse:
     result = await db.execute(select(User).where(User.email == payload.email))
     user = result.scalars().first()
-    if not user or not verify_password(payload.password, user.password_hash):
+    # Always run a bcrypt verification so timing doesn't leak whether the
+    # email exists. Collapse missing-user / wrong-password / disabled-user
+    # into one 401 so the response doesn't leak it either.
+    if user is None:
+        dummy_verify_password(payload.password)
         raise HTTPException(status_code=401, detail="invalid credentials")
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="user disabled")
+    ok = verify_password(payload.password, user.password_hash)
+    if not ok or not user.is_active:
+        raise HTTPException(status_code=401, detail="invalid credentials")
     token = make_token(str(user.id), user.role.value)
     return LoginResponse(access_token=token, user=user)  # type: ignore[arg-type]
 
@@ -53,3 +67,27 @@ async def login(
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(current_user)) -> User:
     return user
+
+
+@router.post("/logout", status_code=204)
+async def logout(authorization: str | None = Header(default=None)) -> None:
+    """Add the caller's JWT jti to the revocation set so the token can't be
+    reused before its natural expiry. Idempotent — already-expired or
+    malformed tokens return 204 without error so the SPA can always clear
+    local state."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return
+    token = authorization.split(None, 1)[1].strip()
+    try:
+        # Verify signature so a third party can't poison the revocation set
+        # with arbitrary jti values, but skip the issuer/required-claims checks
+        # so old-format tokens issued before C5 hardening can also be revoked.
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret,
+            algorithms=[ALGO],
+            options={"require": ["jti", "exp"], "verify_iss": False},
+        )
+    except jwt.InvalidTokenError:
+        return
+    await revoke_jti(payload["jti"], payload.get("exp"))

@@ -3,7 +3,16 @@
 Hard errors → caller returns 422.
 Warnings → non-blocking; surfaced in the editor so authors see dead branches.
 """
+import re
 from typing import Any
+
+# A real URL: absolute http(s) link, or an absolute path served by nginx
+# (typically /static/uploads/<id>.ext). Bare slugs like "MyBrochure" are not
+# acceptable — they get resolved relative to the page hosting the widget,
+# which causes the document bubble to navigate to whatever happens to live
+# at that path on the parent site (e.g. the bot's test page) instead of the
+# intended file.
+_URL_LIKE_RE = re.compile(r"^(?:https?://|/)")
 
 
 def validate_flow(definition: dict) -> tuple[list[str], list[str]]:
@@ -82,6 +91,22 @@ def validate_flow(definition: dict) -> tuple[list[str], list[str]]:
         if not has_fallback and not (values & edge_labels):
             warnings.append(
                 f"buttons node {n['id']!r}: no edge matches any button value, and no fallback edge exists"
+            )
+
+    # Document node: cfg.url must be a real URL or absolute path. A bare
+    # string like "NilevalleyBrochure" gets resolved relative to the page
+    # hosting the widget, which silently breaks the download bubble.
+    for n in nodes:
+        if n.get("type") != "document":
+            continue
+        cfg = n.get("config") or {}
+        url = (cfg.get("url") or "").strip()
+        if not url:
+            errors.append(f"document node {n['id']!r} is missing a url — upload a file or paste a link")
+        elif not _URL_LIKE_RE.match(url):
+            errors.append(
+                f"document node {n['id']!r} has an invalid url {url!r} — must start with "
+                "'/', 'http://', or 'https://'. Use the Upload document button or paste a full URL."
             )
 
     # Terminal expectation: at least one path should reach an end node, otherwise the flow never resolves

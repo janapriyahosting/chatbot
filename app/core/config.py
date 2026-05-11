@@ -1,5 +1,11 @@
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_WEAK_JWT_SECRETS = {
+    "", "change-me", "changeme", "secret", "password", "dev", "test",
+    "your-secret-key", "supersecret",
+}
 
 
 class Settings(BaseSettings):
@@ -63,6 +69,25 @@ class Settings(BaseSettings):
 
     jwt_secret: str
     jwt_ttl_hours: int = 12
+
+    # OpenAPI docs (/docs, /redoc, /openapi.json) enumerate every admin route
+    # and schema. Default off; flip on for dev/staging only.
+    docs_enabled: bool = False
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _jwt_secret_strong(cls, v: str) -> str:
+        if v.strip().lower() in _WEAK_JWT_SECRETS:
+            raise ValueError(
+                "jwt_secret is set to a known-weak value; generate one with "
+                "`python -c 'import secrets; print(secrets.token_urlsafe(48))'`"
+            )
+        if len(v) < 32:
+            raise ValueError(
+                f"jwt_secret must be at least 32 chars (got {len(v)}); "
+                "generate one with `python -c 'import secrets; print(secrets.token_urlsafe(48))'`"
+            )
+        return v
 
     default_system_prompt: str = (
         "You are a concise, helpful assistant. Prefer short answers unless asked for detail."

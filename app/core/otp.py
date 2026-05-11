@@ -22,6 +22,20 @@ DEV_OTP = "123456"
 
 _phone_re = re.compile(r"^[6-9]\d{9}$")
 _OTP_KEY_PREFIX = f"{settings.valkey_prefix}otp:"
+_OTP_SEND_PHONE_PREFIX = f"{settings.valkey_prefix}otp:send:phone:"
+_OTP_SEND_IP_PREFIX = f"{settings.valkey_prefix}otp:send:ip:"
+
+# Caps SMS sends to protect against toll fraud / SmartPing billing abuse.
+# These are intentionally tight — a real user needs at most 1-2 sends per
+# hour. Increase if support starts seeing legitimate users hit the limit.
+_OTP_SEND_MAX_PER_PHONE_PER_HOUR = 3
+_OTP_SEND_MAX_PER_IP_PER_HOUR = 10
+_OTP_SEND_WINDOW_SECONDS = 3600
+
+
+class OtpRateLimited(Exception):
+    """Raised when OTP send is refused due to rate limiting. Caller should
+    surface a generic 'try later' message to the visitor."""
 
 _valkey_client: valkey.Valkey | None = None
 
@@ -76,11 +90,39 @@ async def _smartping_send(phone: str, otp: str) -> bool:
         return r.status_code == 200
 
 
-async def send_otp(phone: str, purpose: str = "lead") -> dict:
+async def _check_send_rate_limit(phone: str, ip: str | None) -> None:
+    """Raise OtpRateLimited if this phone or IP has exceeded the hourly send cap.
+
+    Uses INCR + EXPIRE on a sliding-hour bucket. EXPIRE is set only on first
+    increment so the window doesn't slide forward on every send.
+    """
+    vk = _vk()
+    phone_key = _OTP_SEND_PHONE_PREFIX + phone
+    phone_count = await vk.incr(phone_key)
+    if phone_count == 1:
+        await vk.expire(phone_key, _OTP_SEND_WINDOW_SECONDS)
+    if phone_count > _OTP_SEND_MAX_PER_PHONE_PER_HOUR:
+        raise OtpRateLimited(f"phone-cap (count={phone_count})")
+
+    if ip:
+        ip_key = _OTP_SEND_IP_PREFIX + ip
+        ip_count = await vk.incr(ip_key)
+        if ip_count == 1:
+            await vk.expire(ip_key, _OTP_SEND_WINDOW_SECONDS)
+        if ip_count > _OTP_SEND_MAX_PER_IP_PER_HOUR:
+            raise OtpRateLimited(f"ip-cap (count={ip_count})")
+
+
+async def send_otp(phone: str, purpose: str = "lead", ip: str | None = None) -> dict:
     if settings.otp_dev_bypass:
         return {"sent": True, "dev": True}
 
     phone = phone.strip()
+
+    # Rate limit BEFORE generating/storing, so a flood doesn't churn the
+    # Valkey cache or the SmartPing gateway.
+    await _check_send_rate_limit(phone, ip)
+
     if settings.otp_provider == "smartping" and settings.smartping_username:
         otp = _generate_otp()
         # Store in Valkey with TTL so repeat sends within the window are cached.

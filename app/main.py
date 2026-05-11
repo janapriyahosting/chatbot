@@ -3,14 +3,11 @@ import html as _html
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
-from app.agents.base import Message
-from app.agents.router import AgentRouter
+from app.core.config import settings
 from app.core.auto_close import auto_close_loop
 from app.core.reassign import reassign_loop
 from app.api.admin_ops import router as admin_ops_router
@@ -49,17 +46,96 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-app = FastAPI(title="ChatBot", version="0.1.0", lifespan=lifespan)
-
-# CORS: widget runs on customer domains, so it must cross-origin to our API.
-# Admin routes (/sites, /bots, /flows) get proper auth in Phase 3 — for now
-# the open CORS is fine on a dev box but MUST be tightened before prod exposure.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-    allow_headers=["*"],
+app = FastAPI(
+    title="ChatBot",
+    version="0.1.0",
+    lifespan=lifespan,
+    # OpenAPI surface is gated — leaving it on in prod enumerates every admin
+    # route and schema to unauthenticated callers. Flip DOCS_ENABLED=true in
+    # dev/staging .env if you want /docs back.
+    docs_url="/docs" if settings.docs_enabled else None,
+    redoc_url="/redoc" if settings.docs_enabled else None,
+    openapi_url="/openapi.json" if settings.docs_enabled else None,
 )
+
+# --- CORS + security headers --------------------------------------------
+# Path-aware CORS: the widget loads on customer domains so /widget/* and
+# /webhook/* must accept any Origin, but admin endpoints (/api/*, /auth/*,
+# the SPA itself) are locked to PUBLIC_BASE_URL. Combined with security
+# headers on every response.
+
+_PUBLIC_CORS_PREFIXES = ("/widget/", "/webhook/", "/static/", "/assets/")
+_ADMIN_ORIGIN = settings.public_base_url.rstrip("/")
+
+_CSP_HTML = (
+    "default-src 'self'; "
+    "img-src 'self' data: blob: https:; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
+    "script-src 'self'; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+def _is_public_cors_path(path: str) -> bool:
+    if path == "/health" or path.startswith("/test/"):
+        return True
+    return path.startswith(_PUBLIC_CORS_PREFIXES)
+
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    origin = request.headers.get("origin", "")
+    path = request.url.path
+
+    allowed_origin: str | None = None
+    if origin:
+        if _is_public_cors_path(path):
+            allowed_origin = origin
+        elif origin.rstrip("/") == _ADMIN_ORIGIN:
+            allowed_origin = origin
+
+    if request.method == "OPTIONS" and origin and "access-control-request-method" in request.headers:
+        if not allowed_origin:
+            return Response(status_code=403)
+        return Response(
+            status_code=204,
+            headers={
+                "Access-Control-Allow-Origin": allowed_origin,
+                "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": request.headers.get(
+                    "access-control-request-headers",
+                    "Authorization, Content-Type, X-API-Key, X-Webhook-Secret",
+                ),
+                "Access-Control-Max-Age": "600",
+                "Vary": "Origin",
+            },
+        )
+
+    response = await call_next(request)
+
+    if allowed_origin:
+        response.headers["Access-Control-Allow-Origin"] = allowed_origin
+        response.headers.setdefault("Vary", "Origin")
+
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+    )
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "geolocation=(), camera=(), microphone=(), interest-cohort=()",
+    )
+
+    if response.headers.get("content-type", "").startswith("text/html"):
+        response.headers.setdefault("Content-Security-Policy", _CSP_HTML)
+
+    return response
 
 _PUBLIC = Path(__file__).resolve().parent.parent / "public"
 app.mount("/static", StaticFiles(directory=_PUBLIC), name="static")
@@ -82,47 +158,6 @@ app.include_router(api_keys_router)
 app.include_router(templates_router)
 app.include_router(settings_router)
 app.include_router(o365_router)
-
-_ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
-if _ADMIN_DIST.exists():
-    app.mount(
-        "/assets",
-        StaticFiles(directory=_ADMIN_DIST / "assets"),
-        name="admin_assets",
-    )
-
-    from fastapi.responses import FileResponse
-
-    @app.get("/", include_in_schema=False)
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def _admin_spa(full_path: str = "") -> FileResponse:
-        # Serve index.html for any unmatched path so BrowserRouter can handle
-        # client-side routing (e.g., /bots/<uuid>/flows/<uuid>).
-        # no-store on index.html so a fresh deploy's hashed bundles are picked
-        # up immediately — the bundles themselves are content-addressed.
-        return FileResponse(
-            _ADMIN_DIST / "index.html",
-            headers={"Cache-Control": "no-store"},
-        )
-
-_agent_router = AgentRouter()
-
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatRequest(BaseModel):
-    messages: list[ChatMessage]
-    system: str | None = None
-    force: str | None = None  # "groq" | "gemini"
-
-
-class ChatResponse(BaseModel):
-    reply: str
-    agent: str
-
 
 @app.get("/test/{bot_key}", include_in_schema=False, response_class=HTMLResponse)
 async def widget_test(bot_key: str, title: str = "Chat with us") -> HTMLResponse:
@@ -151,8 +186,26 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
-    msgs = [Message(role=m.role, content=m.content) for m in req.messages]
-    reply, agent_used = await _agent_router.reply(msgs, system=req.system, force=req.force)
-    return ChatResponse(reply=reply, agent=agent_used)
+# SPA catch-all MUST be registered last — anything above this line is a real
+# route; anything not matched falls through to React Router via index.html.
+_ADMIN_DIST = Path(__file__).resolve().parent.parent / "admin" / "dist"
+if _ADMIN_DIST.exists():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=_ADMIN_DIST / "assets"),
+        name="admin_assets",
+    )
+
+    from fastapi.responses import FileResponse
+
+    @app.get("/", include_in_schema=False)
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def _admin_spa(full_path: str = "") -> FileResponse:
+        # Serve index.html for any unmatched path so BrowserRouter can handle
+        # client-side routing (e.g., /bots/<uuid>/flows/<uuid>).
+        # no-store on index.html so a fresh deploy's hashed bundles are picked
+        # up immediately — the bundles themselves are content-addressed.
+        return FileResponse(
+            _ADMIN_DIST / "index.html",
+            headers={"Cache-Control": "no-store"},
+        )
