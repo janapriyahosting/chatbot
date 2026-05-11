@@ -1,0 +1,16 @@
+{
+  "name": "Janapriya Chatbot",
+  "short_name": "Chatbot",
+  "description": "Agent inbox for the Janapriya chatbot",
+  "start_url": "/inbox",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#273b84",
+  "background_color": "#273b84",
+  "icons": [
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

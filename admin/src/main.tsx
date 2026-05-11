@@ -30,6 +30,17 @@ function HomeForRole() {
   return <Bots />;
 }
 
+// PWA: register the service worker in production builds. The dev server
+// (vite) doesn't ship sw.js and the service worker would only cache stale
+// dev assets anyway.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => {
+      console.warn("[pwa] service worker registration failed:", e);
+    });
+  });
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>

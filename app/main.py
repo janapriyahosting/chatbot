@@ -198,11 +198,33 @@ if _ADMIN_DIST.exists():
 
     from fastapi.responses import FileResponse
 
+    # PWA shell files served from /. They must be at the root URL (not under
+    # /assets/) so the service-worker scope spans the whole app and the
+    # manifest can be discovered by the browser.
+    _PWA_FILES = {
+        "manifest.webmanifest": "application/manifest+json",
+        "sw.js": "application/javascript",
+        "icon-192.png": "image/png",
+        "icon-512.png": "image/png",
+        "icon-maskable-512.png": "image/png",
+    }
+
     @app.get("/", include_in_schema=False)
     @app.get("/{full_path:path}", include_in_schema=False)
     async def _admin_spa(full_path: str = "") -> FileResponse:
-        # Serve index.html for any unmatched path so BrowserRouter can handle
-        # client-side routing (e.g., /bots/<uuid>/flows/<uuid>).
+        # PWA static files: serve from disk with no-store so a fresh sw.js or
+        # manifest is picked up immediately. The service worker is how installed
+        # apps update themselves — stale-caching it would brick deploys.
+        if full_path in _PWA_FILES:
+            target = _ADMIN_DIST / full_path
+            if target.is_file():
+                return FileResponse(
+                    target,
+                    media_type=_PWA_FILES[full_path],
+                    headers={"Cache-Control": "no-store"},
+                )
+        # SPA fallback: serve index.html for any unmatched path so BrowserRouter
+        # can handle client-side routing (e.g., /bots/<uuid>/flows/<uuid>).
         # no-store on index.html so a fresh deploy's hashed bundles are picked
         # up immediately — the bundles themselves are content-addressed.
         return FileResponse(
