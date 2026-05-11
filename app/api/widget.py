@@ -56,6 +56,11 @@ _WIDGET_MAX_BYTES = 10 * 1024 * 1024  # 10 MB for visitors
 _WIDGET_RL_PREFIX = f"{settings.valkey_prefix}widget:"
 _widget_vk: _valkey.Valkey | None = None
 
+# The chatbot-api's own host. /test/<bot_key> is served from here for admin
+# previewing, so its Origin must always pass — otherwise tightening a site's
+# allowed_origins silently breaks the preview UX.
+_PUBLIC_BASE_ORIGIN = (settings.public_base_url or "").rstrip("/")
+
 
 def _wvk() -> _valkey.Valkey:
     global _widget_vk
@@ -73,9 +78,13 @@ async def _enforce_origin(
     no-CORS context) and sites without an allowed_origins list both pass.
     The migration backfills the list from each site's existing `domain`, so
     every site is gated immediately on rollout without admin action.
+    Our own PUBLIC_BASE_URL is always allowed so the /test/<bot_key> preview
+    page keeps working without admins having to whitelist us on every site.
     """
     origin = request.headers.get("origin")
     if not origin or site_id is None:
+        return
+    if _PUBLIC_BASE_ORIGIN and origin.rstrip("/") == _PUBLIC_BASE_ORIGIN:
         return
     site = await db.get(Site, site_id)
     if not site or not site.allowed_origins:
