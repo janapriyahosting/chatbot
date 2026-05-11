@@ -51,6 +51,22 @@
     return el;
   }
 
+  function openLightbox(src, alt) {
+    var img = h("img", { src: src, alt: alt || "" });
+    img.addEventListener("click", function (ev) { ev.stopPropagation(); });
+    var closeBtn = h("button", { class: "cb-lightbox-close", "aria-label": "Close", text: "×" });
+    var box = h("div", { class: "cb-lightbox", role: "dialog", "aria-modal": "true" }, [img, closeBtn]);
+    function close() {
+      if (box.parentNode) box.parentNode.removeChild(box);
+      document.removeEventListener("keydown", onKey);
+    }
+    function onKey(e) { if (e.key === "Escape") close(); }
+    box.addEventListener("click", close);
+    closeBtn.addEventListener("click", function (ev) { ev.stopPropagation(); close(); });
+    document.addEventListener("keydown", onKey);
+    document.body.appendChild(box);
+  }
+
   function captureUtm() {
     var q = new URLSearchParams(window.location.search);
     return {
@@ -415,8 +431,13 @@
               onclick: function () { onButton(btn); }
             });
           });
+          var imgUrl = c.image ? absUrl(c.image) : null;
+          var imgWrap = imgUrl ? h("div", {
+            class: "cb-card-image",
+            onclick: function () { openLightbox(imgUrl, c.title || ""); }
+          }, [h("img", { src: imgUrl, alt: c.title || "" })]) : null;
           return h("div", { class: "cb-card" }, [
-            c.image ? h("div", { class: "cb-card-image" }, [h("img", { src: absUrl(c.image), alt: c.title || "" })]) : null,
+            imgWrap,
             h("div", { class: "cb-card-body" }, [
               c.title ? h("div", { class: "cb-card-title", text: c.title }) : null,
               c.subtitle ? h("div", { class: "cb-card-subtitle", text: c.subtitle }) : null,
@@ -445,6 +466,43 @@
           });
         }));
       addMessage("bot", row);
+    } else if (kind === "image_buttons") {
+      if (cfg.body) addMessage("bot", h("div", { class: "cb-bubble", text: cfg.body }));
+      var ibTrack = h("div", { class: "cb-image-btns cb-carousel-track" },
+        (cfg.options || []).map(function (opt) {
+          var imgUrl = opt.image ? absUrl(opt.image) : null;
+          var children = [];
+          if (imgUrl) {
+            children.push(h("div", { class: "cb-image-btn-img" }, [
+              h("img", { src: imgUrl, alt: opt.label || opt.value || "" })
+            ]));
+          }
+          var bodyChildren = [];
+          var titleText = opt.label || opt.value;
+          if (titleText) {
+            bodyChildren.push(h("div", { class: "cb-image-btn-title", text: titleText }));
+          }
+          if (opt.description) {
+            bodyChildren.push(h("div", { class: "cb-image-btn-desc", text: opt.description }));
+          }
+          bodyChildren.push(h("span", { class: "cb-image-btn-cta", text: opt.button_label || "Know more" }));
+          children.push(h("div", { class: "cb-image-btn-body" }, bodyChildren));
+          return h("button", {
+            class: "cb-image-btn",
+            onclick: function () { onButton(opt); }
+          }, children);
+        }));
+      var ibPrev = h("button", { class: "cb-carousel-nav cb-carousel-prev", "aria-label": "Previous", text: "‹" });
+      var ibNext = h("button", { class: "cb-carousel-nav cb-carousel-next", "aria-label": "Next", text: "›" });
+      var ibCarousel = h("div", { class: "cb-carousel cb-image-btns-carousel" }, [ibTrack, ibPrev, ibNext]);
+      var ibStep = function (dir) {
+        var first = ibTrack.querySelector(".cb-image-btn");
+        var step = first ? first.getBoundingClientRect().width + 10 : 220;
+        ibTrack.scrollBy({ left: dir * step, behavior: "smooth" });
+      };
+      ibPrev.addEventListener("click", function (e) { e.stopPropagation(); ibStep(-1); });
+      ibNext.addEventListener("click", function (e) { e.stopPropagation(); ibStep(1); });
+      addMessage("bot", ibCarousel);
     } else if (kind === "input") {
       var t1 = (cfg.type || "text").toLowerCase();
       // Text-like input → use the persistent bottom bar (better UX than a bubble).
@@ -642,8 +700,8 @@
 
   function onButton(opt) {
     addMessage("visitor", h("div", { class: "cb-bubble", text: opt.label || opt.value }));
-    // Disable any remaining buttons in that last row
-    var rows = body.querySelectorAll(".cb-buttons");
+    // Disable any remaining buttons in the last button row (text or image variant)
+    var rows = body.querySelectorAll(".cb-buttons, .cb-image-btns");
     if (rows.length) rows[rows.length - 1].querySelectorAll("button").forEach(function (b) { b.disabled = true; });
     sendReply({ value: opt.value });
   }

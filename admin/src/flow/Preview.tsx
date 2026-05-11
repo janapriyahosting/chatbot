@@ -93,6 +93,52 @@ export function Preview({
             ))}
           </div>
         )}
+        {awaiting && awaiting.type === "image_buttons" && (
+          <div style={{ margin: "6px 0" }}>
+            {awaiting.config?.body && (
+              <div style={{ marginBottom: 6, fontSize: 14 }}>{awaiting.config.body}</div>
+            )}
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6, scrollSnapType: "x mandatory" }}>
+              {(awaiting.config?.options || []).map((o: any, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => click(o.value, o.label || o.value)}
+                  style={{
+                    flex: "0 0 220px", maxWidth: 220, scrollSnapAlign: "start",
+                    padding: 0, border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff",
+                    cursor: "pointer", overflow: "hidden", display: "flex", flexDirection: "column",
+                    fontFamily: "inherit", textAlign: "left",
+                    boxShadow: "0 1px 2px rgba(0,0,0,.04)",
+                  }}
+                >
+                  {o.image && (
+                    <div style={{ width: "100%", aspectRatio: "4/3", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <img src={o.image} alt="" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                    </div>
+                  )}
+                  <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                    {(o.label || o.value) && (
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#111827", lineHeight: 1.25 }}>
+                        {o.label || o.value}
+                      </div>
+                    )}
+                    {o.description && (
+                      <div style={{ fontSize: 12, color: "#4b5563", lineHeight: 1.4, whiteSpace: "pre-wrap" }}>
+                        {o.description}
+                      </div>
+                    )}
+                    <span style={{
+                      alignSelf: "flex-start", marginTop: 4, padding: "6px 12px",
+                      borderRadius: 999, background: "#2563eb", color: "#fff", fontSize: 12, fontWeight: 600,
+                    }}>
+                      {o.button_label || "Know more"}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {awaiting && awaiting.type === "form" && <FormRenderer fields={awaiting.config?.fields || []} onSubmit={submitForm} />}
         {awaiting && awaiting.type === "otp" && <OtpRenderer onSubmit={submitOtp} />}
         {awaiting && awaiting.type === "schedule" && (

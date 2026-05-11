@@ -21,7 +21,7 @@ export function EdgeInspector({
       { label: "true", value: "true" },
       { label: "false", value: "false" },
     ];
-  } else if (sourceType === "buttons") {
+  } else if (sourceType === "buttons" || sourceType === "image_buttons") {
     const opts = (sourceData?.config?.options || []) as { label: string; value: string }[];
     suggestions = opts.map((o) => ({ label: `${o.label} (${o.value})`, value: o.value }));
     suggestions.push({ label: "(fallback / any)", value: "" });
@@ -73,7 +73,7 @@ export function EdgeInspector({
         {sourceType === "condition" && (
           <>Condition nodes need two edges: one labelled <code>true</code>, one <code>false</code>.</>
         )}
-        {sourceType === "buttons" && (
+        {(sourceType === "buttons" || sourceType === "image_buttons") && (
           <>Buttons node: label the edge with a button's <code>value</code> to route that choice.</>
         )}
         {!sourceType && (

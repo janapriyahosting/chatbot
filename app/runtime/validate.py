@@ -82,7 +82,7 @@ def validate_flow(definition: dict) -> tuple[list[str], list[str]]:
 
     # Button nodes: at least one edge should match a button value, OR there should be a fallback unconditional edge
     for n in nodes:
-        if n["type"] != "buttons":
+        if n["type"] not in ("buttons", "image_buttons"):
             continue
         cfg = n.get("config") or {}
         values = {str(o.get("value")) for o in (cfg.get("options") or [])}
@@ -90,7 +90,7 @@ def validate_flow(definition: dict) -> tuple[list[str], list[str]]:
         has_fallback = "" in edge_labels or any(e.get("condition") is None for e in out_edges.get(n["id"], []))
         if not has_fallback and not (values & edge_labels):
             warnings.append(
-                f"buttons node {n['id']!r}: no edge matches any button value, and no fallback edge exists"
+                f"{n['type']} node {n['id']!r}: no edge matches any button value, and no fallback edge exists"
             )
 
     # Document node: cfg.url must be a real URL or absolute path. A bare

@@ -15,6 +15,28 @@ import { VarPicker } from "./VarPicker";
  * This sidesteps every possible controlled/uncontrolled race because React's
  * reconciliation simply has no say over this field's value post-mount.
  */
+/**
+ * Stable per-row keys for array editors. Without this, BInput/BTextArea —
+ * which are DOM-owned and never re-render their value (see useDomBound) —
+ * visually mis-align with state when a middle row is deleted: React keys by
+ * index, so it drops the LAST DOM node and the rows above appear to shift up,
+ * making it look like the wrong row was removed.
+ *
+ * Callers must route adds/removes through `push` / `remove` so ids stay
+ * aligned with the item array.
+ */
+function useRowIds(itemCount: number) {
+  const ref = useRef<string[]>([]);
+  while (ref.current.length < itemCount) {
+    ref.current.push(Math.random().toString(36).slice(2));
+  }
+  return {
+    keys: ref.current,
+    push: () => { ref.current.push(Math.random().toString(36).slice(2)); },
+    remove: (i: number) => { ref.current.splice(i, 1); },
+  };
+}
+
 function useDomBound(
   initialValue: string,
   onCommit: (v: string) => void,
@@ -87,7 +109,7 @@ function BTextArea(
 
 export const NODE_TYPES = [
   "start", "text", "image", "video", "document", "carousel",
-  "buttons", "input", "form", "schedule", "condition", "otp", "api", "ai", "handoff", "end",
+  "buttons", "image_buttons", "input", "form", "schedule", "condition", "otp", "api", "ai", "handoff", "end",
 ] as const;
 
 function insertAtCursor(el: HTMLTextAreaElement | HTMLInputElement | null, token: string, setValue: (v: string) => void, _unused?: string) {
@@ -121,6 +143,9 @@ export function NodeInspector({
   const data = node.data as NodeData;
   const cfg = data.config || {};
   const set = (k: string, v: any) => onChange({ config: { ...cfg, [k]: v } });
+  // Batched variant: writes multiple keys in one parent update so sequential
+  // set() calls don't clobber each other through stale-closure cfg.
+  const setMany = (patch: Record<string, any>) => onChange({ config: { ...cfg, ...patch } });
 
   return (
     <div>
@@ -151,7 +176,7 @@ export function NodeInspector({
       {data.nodeType === "image" && (
         <>
           <label>Image URL</label>
-          <BInput value={cfg.url || ""} onCommit={(v) => set("url", v)} />
+          <input value={cfg.url || ""} onChange={(e) => set("url", e.target.value)} />
           <UploadButton accept="image/*" label="Upload image" onUploaded={(url) => set("url", url)} />
           {cfg.url && <img src={cfg.url} alt="" style={{ maxWidth: "100%", marginTop: 8, borderRadius: 4 }} />}
           <label>Caption</label>
@@ -162,7 +187,7 @@ export function NodeInspector({
       {data.nodeType === "video" && (
         <>
           <label>Video URL (mp4/webm)</label>
-          <BInput value={cfg.url || ""} onCommit={(v) => set("url", v)} />
+          <input value={cfg.url || ""} onChange={(e) => set("url", e.target.value)} />
           <UploadButton accept="video/*" label="Upload video" onUploaded={(url) => set("url", url)} />
           <label>Caption</label>
           <BInput value={cfg.caption || ""} onCommit={(v) => set("caption", v)} />
@@ -172,18 +197,19 @@ export function NodeInspector({
       {data.nodeType === "document" && (
         <>
           <label>Document URL (PDF, DOCX, XLSX, PPT, ZIP, ...)</label>
-          <BInput value={cfg.url || ""} onCommit={(v) => set("url", v)} />
+          <input value={cfg.url || ""} onChange={(e) => set("url", e.target.value)} />
           <UploadButton
             accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rtf,.odt,.ods,application/pdf"
             label="Upload document"
             onUploaded={(url, info) => {
-              set("url", url);
+              const patch: Record<string, any> = { url };
               if (info) {
-                if (info.original_filename && !cfg.title) set("title", info.original_filename.replace(/\.[^.]+$/, ""));
-                if (info.original_filename) set("original_filename", info.original_filename);
-                if (info.size) set("size", info.size);
-                if (info.content_type) set("content_type", info.content_type);
+                if (info.original_filename && !cfg.title) patch.title = info.original_filename.replace(/\.[^.]+$/, "");
+                if (info.original_filename) patch.original_filename = info.original_filename;
+                if (info.size) patch.size = info.size;
+                if (info.content_type) patch.content_type = info.content_type;
               }
+              setMany(patch);
             }}
           />
           {cfg.url && (
@@ -209,6 +235,15 @@ export function NodeInspector({
 
       {data.nodeType === "buttons" && (
         <ButtonsEditor
+          body={cfg.body || ""}
+          options={cfg.options || []}
+          setBody={(v) => set("body", v)}
+          setOptions={(v) => set("options", v)}
+        />
+      )}
+
+      {data.nodeType === "image_buttons" && (
+        <ImageButtonsEditor
           body={cfg.body || ""}
           options={cfg.options || []}
           setBody={(v) => set("body", v)}
@@ -361,8 +396,9 @@ type Opt = { label: string; value: string };
 function ButtonsEditor({ body, options, setBody, setOptions }: {
   body: string; options: Opt[]; setBody: (v: string) => void; setOptions: (v: Opt[]) => void;
 }) {
-  const add = () => setOptions([...options, { label: "New", value: "new" }]);
-  const del = (i: number) => setOptions(options.filter((_: any, j: number) => j !== i));
+  const ids = useRowIds(options.length);
+  const add = () => { ids.push(); setOptions([...options, { label: "New", value: "new" }]); };
+  const del = (i: number) => { ids.remove(i); setOptions(options.filter((_: any, j: number) => j !== i)); };
   const upd = (i: number, k: string, v: string) =>
     setOptions(options.map((o: any, j: number) => (j === i ? { ...o, [k]: v } : o)));
   return (
@@ -371,13 +407,50 @@ function ButtonsEditor({ body, options, setBody, setOptions }: {
       <BTextArea value={body} onCommit={(v) => setBody(v)} />
       <label>Options</label>
       {options.map((o: any, i: number) => (
-        <div key={i} className="row" style={{ marginTop: 6 }}>
+        <div key={ids.keys[i]} className="row" style={{ marginTop: 6 }}>
           <BInput placeholder="label" value={o.label} onCommit={(v) => upd(i, "label", v)} />
           <BInput placeholder="value" value={o.value} onCommit={(v) => upd(i, "value", v)} />
           <button className="btn danger" style={{ padding: "4px 8px" }} onClick={() => del(i)}>×</button>
         </div>
       ))}
       <button className="btn ghost" style={{ marginTop: 8 }} onClick={add}>+ option</button>
+    </>
+  );
+}
+
+type ImgOpt = { label: string; value: string; image?: string; description?: string; button_label?: string };
+function ImageButtonsEditor({ body, options, setBody, setOptions }: {
+  body: string; options: ImgOpt[]; setBody: (v: string) => void; setOptions: (v: ImgOpt[]) => void;
+}) {
+  const ids = useRowIds(options.length);
+  const add = () => { ids.push(); setOptions([...options, { label: "New", value: "new", image: "", description: "", button_label: "Know more" }]); };
+  const del = (i: number) => { ids.remove(i); setOptions(options.filter((_: any, j: number) => j !== i)); };
+  const upd = (i: number, k: string, v: string) =>
+    setOptions(options.map((o: any, j: number) => (j === i ? { ...o, [k]: v } : o)));
+  return (
+    <>
+      <label>Prompt</label>
+      <BTextArea value={body} onCommit={(v) => setBody(v)} placeholder="Choose a project:" />
+      <label>Options</label>
+      {options.map((o: any, i: number) => (
+        <div key={ids.keys[i]} className="card" style={{ padding: 8, marginTop: 6 }}>
+          <BInput placeholder="title (e.g., Nilevalley)" value={o.label || ""} onCommit={(v) => upd(i, "label", v)} />
+          <BInput placeholder="value (e.g., nilevalley) — used to route the next flow"
+            value={o.value || ""} onCommit={(v) => upd(i, "value", v)} style={{ marginTop: 4 }} />
+          <BInput placeholder="image url" value={o.image || ""} onCommit={(v) => upd(i, "image", v)} style={{ marginTop: 4 }} />
+          <UploadButton accept="image/*" label="Upload image" onUploaded={(url) => upd(i, "image", url)} />
+          {o.image && <img src={o.image} alt="" style={{ maxWidth: "100%", marginTop: 6, borderRadius: 4 }} />}
+          <BTextArea placeholder="description (e.g., 6 acres • 5 buildings • 2/2.5/3 BHK • ₹75L–1.35Cr)"
+            value={o.description || ""} onCommit={(v) => upd(i, "description", v)} />
+          <BInput placeholder="button text (e.g., Know more)" value={o.button_label || ""}
+            onCommit={(v) => upd(i, "button_label", v)} style={{ marginTop: 4 }} />
+          <button className="btn danger" style={{ padding: "4px 8px", marginTop: 6 }} onClick={() => del(i)}>remove</button>
+        </div>
+      ))}
+      <button className="btn ghost" style={{ marginTop: 8 }} onClick={add}>+ option</button>
+      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+        Each option's <code>value</code> is the edge label that picks the next node.
+      </div>
     </>
   );
 }
@@ -414,8 +487,9 @@ function FormEditor({ intro, fields, submit, setIntro, setFields, setSubmit }: {
   intro: string; fields: Field[]; submit: string;
   setIntro: (v: string) => void; setFields: (v: Field[]) => void; setSubmit: (v: string) => void;
 }) {
-  const add = () => setFields([...fields, { name: "field", label: "Field", type: "text" }]);
-  const del = (i: number) => setFields(fields.filter((_, j) => j !== i));
+  const ids = useRowIds(fields.length);
+  const add = () => { ids.push(); setFields([...fields, { name: "field", label: "Field", type: "text" }]); };
+  const del = (i: number) => { ids.remove(i); setFields(fields.filter((_, j) => j !== i)); };
   const upd = (i: number, patch: Partial<Field>) =>
     setFields(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   return (
@@ -426,7 +500,7 @@ function FormEditor({ intro, fields, submit, setIntro, setFields, setSubmit }: {
       {fields.map((f, i) => {
         const t = f.type || "text";
         return (
-          <div key={i} className="card" style={{ padding: 10, marginTop: 8, background: "#fafafa" }}>
+          <div key={ids.keys[i]} className="card" style={{ padding: 10, marginTop: 8, background: "#fafafa" }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <div style={{ fontSize: 11, color: "#6b7280", textTransform: "uppercase" }}>Field {i + 1}</div>
               <button className="btn danger" style={{ padding: "2px 8px", fontSize: 11 }} onClick={() => del(i)}>Remove</button>
@@ -486,14 +560,15 @@ function FormEditor({ intro, fields, submit, setIntro, setFields, setSubmit }: {
 function SelectOptionsEditor({ options, setOptions }: {
   options: { label: string; value: string }[]; setOptions: (o: { label: string; value: string }[]) => void;
 }) {
-  const add = () => setOptions([...options, { label: "Option", value: "option" }]);
-  const del = (i: number) => setOptions(options.filter((_, j) => j !== i));
+  const ids = useRowIds(options.length);
+  const add = () => { ids.push(); setOptions([...options, { label: "Option", value: "option" }]); };
+  const del = (i: number) => { ids.remove(i); setOptions(options.filter((_, j) => j !== i)); };
   const upd = (i: number, k: "label" | "value", v: string) =>
     setOptions(options.map((o, j) => (j === i ? { ...o, [k]: v } : o)));
   return (
     <div style={{ marginTop: 4 }}>
       {options.map((o, i) => (
-        <div key={i} className="row" style={{ marginTop: 4 }}>
+        <div key={ids.keys[i]} className="row" style={{ marginTop: 4 }}>
           <BInput placeholder="label" value={o.label} onCommit={(v) => upd(i, "label", v)} />
           <BInput placeholder="value" value={o.value} onCommit={(v) => upd(i, "value", v)} />
           <button className="btn danger" style={{ padding: "4px 8px" }} onClick={() => del(i)}>×</button>
@@ -558,14 +633,16 @@ function ConditionEditor({ rules, logic, setRules, setLogic, allNodes = [] }: {
   const safe: Rule[] = Array.isArray(rules) ? rules : [];
   const vars = buildVarCatalog(allNodes);
   const first = vars[0]?.value || "answers.input";
+  const ids = useRowIds(safe.length);
   const add = () => {
+    ids.push();
     setRules([...safe, { left: first, op: "==", right: "" } as Rule]);
     requestAnimationFrame(() => {
       const panel = document.querySelector('[data-cb-inspector]') as HTMLElement | null;
       if (panel) panel.scrollTop = panel.scrollHeight;
     });
   };
-  const del = (i: number) => setRules(safe.filter((_, j) => j !== i));
+  const del = (i: number) => { ids.remove(i); setRules(safe.filter((_, j) => j !== i)); };
   const upd = (i: number, patch: Partial<Rule>) =>
     setRules(safe.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const hideRight = (op: string) => op === "exists" || op === "not_exists";
@@ -574,7 +651,7 @@ function ConditionEditor({ rules, logic, setRules, setLogic, allNodes = [] }: {
       <label>If…</label>
       {safe.length === 0 && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>No rules yet — click + rule.</div>}
       {safe.map((r, i) => (
-        <div key={i} className="card" style={{ padding: 8, marginTop: 6, borderColor: "#2563eb" }}>
+        <div key={ids.keys[i]} className="card" style={{ padding: 8, marginTop: 6, borderColor: "#2563eb" }}>
           <label>Variable</label>
           <select value={r.left} onChange={(e) => upd(i, { left: e.target.value })}>
             {vars.length === 0 && <option value="">(add an input/form/api node first)</option>}
@@ -767,15 +844,16 @@ type Card = { title?: string; subtitle?: string; image?: string };
 function CarouselEditor({ cards, setCards }: {
   cards: Card[]; setCards: (v: Card[]) => void;
 }) {
-  const add = () => setCards([...cards, { title: "New card", subtitle: "", image: "" }]);
-  const del = (i: number) => setCards(cards.filter((_: any, j: number) => j !== i));
+  const ids = useRowIds(cards.length);
+  const add = () => { ids.push(); setCards([...cards, { title: "New card", subtitle: "", image: "" }]); };
+  const del = (i: number) => { ids.remove(i); setCards(cards.filter((_: any, j: number) => j !== i)); };
   const upd = (i: number, k: string, v: string) =>
     setCards(cards.map((c: any, j: number) => (j === i ? { ...c, [k]: v } : c)));
   return (
     <>
       <label>Cards</label>
       {cards.map((c: any, i: number) => (
-        <div key={i} className="card" style={{ padding: 8, marginTop: 6 }}>
+        <div key={ids.keys[i]} className="card" style={{ padding: 8, marginTop: 6 }}>
           <BInput placeholder="title" value={c.title || ""} onCommit={(v) => upd(i, "title", v)} />
           <BInput placeholder="subtitle" value={c.subtitle || ""} onCommit={(v) => upd(i, "subtitle", v)} style={{ marginTop: 4 }} />
           <BInput placeholder="image url" value={c.image || ""} onCommit={(v) => upd(i, "image", v)} style={{ marginTop: 4 }} />

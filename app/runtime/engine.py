@@ -14,7 +14,7 @@ from app.runtime.http_safe import UnsafeRequest, safe_request
 from app.runtime.template import render
 
 OUTPUT_TYPES = {"text", "image", "video", "carousel", "document"}
-INPUT_TYPES = {"buttons", "form", "input", "list", "otp", "schedule"}
+INPUT_TYPES = {"buttons", "image_buttons", "form", "input", "list", "otp", "schedule"}
 TERMINAL_TYPES = {"end"}
 
 
@@ -71,6 +71,9 @@ async def _run_node(node: dict, ctx: dict[str, Any]) -> NodeResult:
 
     if t == "buttons":
         return NodeResult(outputs=[{"kind": "buttons", "config": cfg}], awaits_input=True)
+
+    if t == "image_buttons":
+        return NodeResult(outputs=[{"kind": "image_buttons", "config": cfg}], awaits_input=True)
 
     if t == "form":
         return NodeResult(outputs=[{"kind": "form", "config": cfg}], awaits_input=True)
@@ -220,7 +223,7 @@ async def advance(
     if reply and context.get("awaiting"):
         aw = context["awaiting"]
         node = nodes.get(aw["node_id"], {})
-        if node.get("type") == "buttons":
+        if node.get("type") in ("buttons", "image_buttons"):
             reply_value = str(reply.get("value", ""))
             answers[aw["node_id"]] = reply_value
         elif node.get("type") == "form":

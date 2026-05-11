@@ -21,6 +21,7 @@ class FlowNode(BaseModel):
         "document",
         "carousel",
         "buttons",
+        "image_buttons",
         "list",
         "input",
         "form",
