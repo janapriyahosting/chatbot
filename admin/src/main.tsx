@@ -5,6 +5,7 @@ import "./index.css";
 import "@xyflow/react/dist/style.css";
 import { Login } from "./pages/Login";
 import { Bots } from "./pages/Bots";
+import { Sites } from "./pages/Sites";
 import { FlowEditor } from "./pages/FlowEditor";
 import { Users } from "./pages/Users";
 import { Inbox } from "./pages/Inbox";
@@ -50,6 +51,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             </Protected>
           }
         />
+        <Route path="/sites" element={<Protected><Sites /></Protected>} />
         <Route path="/users" element={<Protected><Users /></Protected>} />
         <Route path="/inbox" element={<Protected><Inbox /></Protected>} />
         <Route path="/leads" element={<Protected><Leads /></Protected>} />

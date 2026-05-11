@@ -7,6 +7,7 @@ import { useAuth } from "./store";
 const NAV: { to: string; label: string; icon: string; supervisorOnly?: boolean }[] = [
   { to: "/inbox", label: "Live chats", icon: "💬" },
   { to: "/", label: "Bots", icon: "🤖", supervisorOnly: true },
+  { to: "/sites", label: "Sites", icon: "🌐", supervisorOnly: true },
   { to: "/whatsapp", label: "WhatsApp", icon: "🟢", supervisorOnly: true },
   { to: "/leads", label: "Leads", icon: "👥", supervisorOnly: true },
   { to: "/analytics", label: "Analytics", icon: "📈", supervisorOnly: true },

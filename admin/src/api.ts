@@ -35,6 +35,8 @@ export const api = {
   listSites: () => req<any[]>("GET", "/api/sites"),
   createSite: (body: { name: string; domain: string }) =>
     req<any>("POST", "/api/sites", body),
+  updateSite: (id: string, body: { name?: string; domain?: string; allowed_origins?: string[] }) =>
+    req<any>("PATCH", `/api/sites/${id}`, body),
   listFlows: (botId: string) => req<any[]>("GET", `/api/bots/${botId}/flows`),
   createFlow: (botId: string, body: { name: string; definition: any }) =>
     req<any>("POST", `/api/bots/${botId}/flows`, body),
