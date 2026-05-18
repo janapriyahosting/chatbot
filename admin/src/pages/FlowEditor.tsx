@@ -10,7 +10,7 @@ import {
   useEdgesState,
   useNodesState,
 } from "@xyflow/react";
-import type { Connection, Edge, Node } from "@xyflow/react";
+import type { Connection, Edge, Node, ReactFlowInstance } from "@xyflow/react";
 import { api } from "../api";
 import { EdgeInspector } from "../flow/EdgeInspector";
 import { NodeInspector, NODE_TYPES } from "../flow/Inspector";
@@ -116,6 +116,8 @@ export function FlowEditor() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const loaded = useRef(false);
+  const rfInstance = useRef<ReactFlowInstance | null>(null);
+  const canvasWrapRef = useRef<HTMLDivElement | null>(null);
   const selected = selectedId ? nodes.find((n) => n.id === selectedId) || null : null;
   const selectedEdge = selectedEdgeId ? edges.find((e) => e.id === selectedEdgeId) || null : null;
 
@@ -156,7 +158,7 @@ export function FlowEditor() {
     [setEdges]
   );
 
-  const addNode = (type: NodeType) => {
+  const addNode = (type: NodeType, position?: { x: number; y: number }) => {
     // Reserve literal `start`/`end` ids for the FIRST such node. Additional
     // start/end nodes get unique ids so multi-branch flows with several ends
     // (e.g., one per condition branch) can't accidentally share an id.
@@ -172,14 +174,49 @@ export function FlowEditor() {
     } else {
       id = genId(type);
     }
+    // Click path: drop at viewport center so the node appears where the user
+    // is actually looking. Drag-drop path: position is provided directly.
+    let pos = position;
+    if (!pos) {
+      const rect = canvasWrapRef.current?.getBoundingClientRect();
+      if (rfInstance.current && rect) {
+        pos = rfInstance.current.screenToFlowPosition({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        });
+        // Small jitter so successive clicks don't stack exactly on top.
+        pos = { x: pos.x + nodes.length * 24, y: pos.y + nodes.length * 24 };
+      } else {
+        pos = { x: 120 + nodes.length * 40, y: 120 + nodes.length * 40 };
+      }
+    }
     const newNode: Node = {
       id,
       type: "default",
-      position: { x: 120 + nodes.length * 40, y: 120 + nodes.length * 40 },
+      position: pos,
       data: { label: `${type}${id !== type ? ` · ${id}` : ""}`, nodeType: type, config: {} },
     };
     setNodes((ns) => [...ns, newNode]);
     if (type === "start") setStartNode(id);
+  };
+
+  const onPaletteDragStart = (e: React.DragEvent, type: NodeType) => {
+    e.dataTransfer.setData("application/cb-node-type", type);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const onCanvasDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("application/cb-node-type")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const onCanvasDrop = (e: React.DragEvent) => {
+    const type = e.dataTransfer.getData("application/cb-node-type") as NodeType;
+    if (!type || !rfInstance.current) return;
+    e.preventDefault();
+    const pos = rfInstance.current.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    addNode(type, pos);
   };
 
   const updateNode = (id: string, patch: Partial<FlowNodeData>) => {
@@ -291,7 +328,15 @@ export function FlowEditor() {
           <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 6 }}>Add node</div>
           <div className="grid">
             {NODE_TYPES.map((t) => (
-              <button key={t} className="btn ghost" style={{ textAlign: "left" }} onClick={() => addNode(t)}>
+              <button
+                key={t}
+                className="btn ghost"
+                style={{ textAlign: "left", cursor: "grab" }}
+                title="Click to add at view center, or drag onto the canvas to place"
+                draggable
+                onDragStart={(e) => onPaletteDragStart(e, t)}
+                onClick={() => addNode(t)}
+              >
                 + {t}
               </button>
             ))}
@@ -306,7 +351,12 @@ export function FlowEditor() {
         </div>
 
         {/* Canvas */}
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          ref={canvasWrapRef}
+          style={{ flex: 1, minWidth: 0 }}
+          onDragOver={onCanvasDragOver}
+          onDrop={onCanvasDrop}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -316,6 +366,7 @@ export function FlowEditor() {
             onReconnect={onReconnect}
             edgesReconnectable={true}
             deleteKeyCode={["Backspace", "Delete"]}
+            onInit={(inst) => { rfInstance.current = inst; }}
             onSelectionChange={({ nodes: sn, edges: se }) => {
               setSelectedId(sn?.[0]?.id ?? null);
               setSelectedEdgeId(se?.[0]?.id ?? null);

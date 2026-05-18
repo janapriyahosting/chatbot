@@ -3,6 +3,25 @@ import { useAuth } from "./store";
 // Same-origin in production (served from FastAPI). Vite dev proxies via vite.config.ts.
 const BASE = "";
 
+async function humanizeError(res: Response): Promise<string> {
+  const fallback = res.statusText || `HTTP ${res.status}`;
+  let data: any = null;
+  try { data = await res.json(); } catch { return fallback; }
+  const d = data?.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) {
+    // FastAPI/Pydantic validation: array of { loc, msg, type }
+    const parts = d.map((e: any) => {
+      const loc = Array.isArray(e?.loc) ? e.loc.filter((p: any) => p !== "body") : [];
+      const field = loc.join(".");
+      return field ? `${field}: ${e.msg}` : e?.msg;
+    }).filter(Boolean);
+    return parts.join("; ") || fallback;
+  }
+  if (d && typeof d === "object") return d.message || d.error || fallback;
+  return fallback;
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = useAuth.getState().token;
   const res = await fetch(BASE + path, {
@@ -18,9 +37,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     throw new Error("unauthorized");
   }
   if (!res.ok) {
-    let detail = res.statusText;
-    try { detail = (await res.json()).detail || detail; } catch {}
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new Error(await humanizeError(res));
   }
   return res.status === 204 ? (undefined as T) : await res.json();
 }

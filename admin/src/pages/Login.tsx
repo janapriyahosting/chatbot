@@ -39,25 +39,30 @@ export function Login() {
           setAuth(token, me);
           nav("/");
         } catch (e: any) {
-          setErr(e.message || "login failed");
+          setErr(friendlyLoginError(e));
         }
       })();
     } else if (errMsg) {
       history.replaceState({}, "", "/login");
-      setErr(errMsg);
+      setErr(friendlyLoginError({ message: errMsg }));
     }
   }, [setAuth, nav]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setErr("Please enter your email and password.");
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.login(email, password);
+      const r = await api.login(trimmedEmail, password);
       setAuth(r.access_token, r.user);
       nav("/");
     } catch (e: any) {
-      setErr(e.message || "login failed");
+      setErr(friendlyLoginError(e));
     } finally {
       setBusy(false);
     }
@@ -67,6 +72,7 @@ export function Login() {
     <div style={styles.page}>
       {/* Left: brand panel — collapses on mobile (handled via CSS class below) */}
       <div className="login-brand" style={styles.brand}>
+        <Sparkles cluster={BRAND_SPARKLES} />
         <div style={styles.brandInner}>
           <img
             src="/static/brand/janapriya-upscale-light.png"
@@ -81,6 +87,7 @@ export function Login() {
 
       {/* Right: form */}
       <div style={styles.formPanel}>
+        <Sparkles cluster={FORM_SPARKLES} />
         <div style={styles.formCard}>
           <img
             src="/static/brand/janapriya-upscale-dark.png"
@@ -151,6 +158,81 @@ export function Login() {
       `}</style>
     </div>
   );
+}
+
+type Sparkle = {
+  size: number;
+  // Anchor: any subset of top/right/bottom/left in % or px strings.
+  top?: string; right?: string; bottom?: string; left?: string;
+  opacity: number;
+  rotate?: number;
+};
+
+// Larger emblems anchor the eye; smaller ones trail off like sparkles.
+// Coordinates are anchored to corners/edges, never overlapping the
+// centered content (logo + headings).
+const BRAND_SPARKLES: Sparkle[] = [
+  { size: 520, top: "50%",  left: "50%", opacity: 0.07, rotate: -12 }, // hero center
+  { size: 140, top: "8%",   left: "6%",  opacity: 0.14, rotate: 14 },
+  { size: 90,  top: "18%",  right: "10%", opacity: 0.12, rotate: -8 },
+  { size: 60,  top: "40%",  right: "6%",  opacity: 0.16, rotate: 22 },
+  { size: 110, bottom: "12%", left: "8%", opacity: 0.13, rotate: -20 },
+  { size: 50,  bottom: "26%", right: "14%", opacity: 0.18, rotate: 10 },
+  { size: 40,  bottom: "8%", right: "32%", opacity: 0.20, rotate: -6 },
+];
+
+const FORM_SPARKLES: Sparkle[] = [
+  { size: 160, bottom: "24px", right: "24px", opacity: 0.07, rotate: -10 },
+  { size: 80,  top: "8%",   right: "8%",   opacity: 0.06, rotate: 12 },
+  { size: 50,  top: "32%",  left: "6%",    opacity: 0.07, rotate: -18 },
+  { size: 36,  bottom: "20%", left: "12%", opacity: 0.08, rotate: 8 },
+  { size: 28,  top: "60%",  right: "16%",  opacity: 0.09, rotate: -4 },
+];
+
+function Sparkles({ cluster }: { cluster: Sparkle[] }) {
+  return (
+    <>
+      {cluster.map((s, i) => {
+        // When anchored by a center-style 50% with no explicit translate, we
+        // shift the image by -50% so it actually centers on that anchor.
+        const isCentered = s.top === "50%" && s.left === "50%";
+        const transform = `${isCentered ? "translate(-50%, -50%) " : ""}rotate(${s.rotate ?? 0}deg)`;
+        return (
+          <img
+            key={i}
+            src="/static/brand/janapriya-ramus.png"
+            alt=""
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              width: s.size,
+              height: s.size,
+              top: s.top, right: s.right, bottom: s.bottom, left: s.left,
+              opacity: s.opacity,
+              transform,
+              pointerEvents: "none",
+              userSelect: "none",
+              zIndex: 0,
+            }}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+function friendlyLoginError(e: any): string {
+  const raw = (e?.message || "").toString().trim().toLowerCase();
+  if (!raw) return "Sign-in failed. Please try again.";
+  if (raw === "unauthorized" || raw === "invalid credentials") {
+    return "Incorrect email or password.";
+  }
+  if (raw.includes("failed to fetch") || raw.includes("networkerror") || raw.includes("load failed")) {
+    return "Can't reach the server. Check your connection and try again.";
+  }
+  if (raw.includes("email")) return "Please enter a valid email address.";
+  // Already-humanised messages from api.ts get shown with sentence case.
+  return e.message.charAt(0).toUpperCase() + e.message.slice(1);
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -227,10 +309,14 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
+    position: "relative",
+    overflow: "hidden",
   },
   formCard: {
     width: "100%",
     maxWidth: 380,
+    position: "relative",
+    zIndex: 1,
   },
   formTitle: {
     margin: 0,

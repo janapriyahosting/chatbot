@@ -5,6 +5,23 @@ import { api } from "./api";
 import { useAuth } from "./store";
 import { useIsMobile } from "./utils/useIsMobile";
 
+// Decorative emblem cluster shown faintly across the dashboard. Sizes scale
+// from anchor (bottom-right) outward — bigger near the corner, smaller
+// "sparkles" trailing toward the center. `pointer-events: none` keeps them
+// from intercepting clicks, and we skip them on mobile to avoid clutter on
+// small screens.
+const DASHBOARD_SPARKLES: {
+  size: number;
+  top?: string; right?: string; bottom?: string; left?: string;
+  opacity: number; rotate?: number;
+}[] = [
+  { size: 110, bottom: "16px", right: "16px", opacity: 0.10, rotate: -8 },
+  { size: 60,  bottom: "140px", right: "60px", opacity: 0.08, rotate: 14 },
+  { size: 40,  bottom: "220px", right: "30px", opacity: 0.09, rotate: -22 },
+  { size: 70,  top: "80px", right: "40px", opacity: 0.06, rotate: 10 },
+  { size: 32,  top: "180px", right: "120px", opacity: 0.08, rotate: -6 },
+];
+
 const NAV: { to: string; label: string; icon: string; supervisorOnly?: boolean }[] = [
   { to: "/inbox", label: "Live chats", icon: "💬" },
   { to: "/", label: "Bots", icon: "🤖", supervisorOnly: true },
@@ -140,9 +157,30 @@ export function Layout({ children, wide }: { children: ReactNode; wide?: boolean
         flex: 1, minWidth: 0,
         display: "flex", flexDirection: "column",
         height: "100dvh", overflow: "hidden",
+        position: "relative",
       } : {
         flex: 1, minWidth: 0, overflow: "auto",
+        position: "relative",
       }}>
+        {!isMobile && DASHBOARD_SPARKLES.map((s, i) => (
+          <img
+            key={i}
+            src="/static/brand/janapriya-ramus.png"
+            alt=""
+            aria-hidden="true"
+            style={{
+              position: "fixed",
+              width: s.size,
+              height: s.size,
+              top: s.top, right: s.right, bottom: s.bottom, left: s.left,
+              opacity: s.opacity,
+              transform: `rotate(${s.rotate ?? 0}deg)`,
+              pointerEvents: "none",
+              userSelect: "none",
+              zIndex: 0,
+            }}
+          />
+        ))}
         {isMobile && (
           <div style={{
             display: "flex", alignItems: "center", gap: 12,
