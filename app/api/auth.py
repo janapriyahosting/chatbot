@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.db import get_session
 from app.core.security import (
     ALGO,
+    AUDIENCE,
     current_user,
     dummy_verify_password,
     make_token,
@@ -79,15 +80,18 @@ async def logout(authorization: str | None = Header(default=None)) -> None:
         return
     token = authorization.split(None, 1)[1].strip()
     try:
-        # Verify signature so a third party can't poison the revocation set
-        # with arbitrary jti values, but skip the issuer/required-claims checks
-        # so old-format tokens issued before C5 hardening can also be revoked.
+        # Verify signature, issuer, and audience so a third party can't poison
+        # the revocation set with arbitrary jti values from forged or
+        # cross-service tokens.
         payload = jwt.decode(
             token,
             settings.jwt_secret,
             algorithms=[ALGO],
-            options={"require": ["jti", "exp"], "verify_iss": False},
+            audience=AUDIENCE,
+            options={"require": ["jti", "exp"]},
         )
     except jwt.InvalidTokenError:
+        # Idempotent on tampered/expired/legacy tokens — the SPA can always
+        # clear local state regardless.
         return
     await revoke_jti(payload["jti"], payload.get("exp"))

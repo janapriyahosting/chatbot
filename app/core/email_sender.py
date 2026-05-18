@@ -8,6 +8,7 @@ import aiosmtplib
 from sqlalchemy import select
 
 from app.core.config import settings as env_settings
+from app.core.crypto import decrypt
 from app.core.db import SessionLocal
 from app.models.app_setting import AppSetting
 
@@ -35,7 +36,7 @@ async def _load_smtp_config() -> dict:
         "host": pick("host", env_settings.smtp_host),
         "port": int(pick("port", env_settings.smtp_port) or 0),
         "username": pick("username", env_settings.smtp_username),
-        "password": pick("password", env_settings.smtp_password),
+        "password": decrypt(pick("password", env_settings.smtp_password)),
         "from_addr": pick("from_addr", env_settings.smtp_from),
         "use_tls": bool(pick("use_tls", env_settings.smtp_use_tls)),
         "use_ssl": bool(pick("use_ssl", env_settings.smtp_use_ssl)),

@@ -7,6 +7,7 @@ import httpx
 from sqlalchemy import select
 
 from app.core.config import settings as env_settings
+from app.core.crypto import decrypt
 from app.core.db import SessionLocal
 from app.models.app_setting import AppSetting
 
@@ -33,9 +34,9 @@ async def _load_whatsapp_config() -> dict:
         return v if v not in (None, "") else env_default
 
     return {
-        "api_key": pick("api_key", env_settings.whatsapp_api_key),
+        "api_key": decrypt(pick("api_key", env_settings.whatsapp_api_key)),
         "from_number": pick("from_number", env_settings.whatsapp_from),
-        "webhook_secret": pick("webhook_secret", env_settings.whatsapp_webhook_secret),
+        "webhook_secret": decrypt(pick("webhook_secret", env_settings.whatsapp_webhook_secret)),
         "session_message_url": pick(
             "session_message_url", env_settings.whatsapp_session_message_url
         ),

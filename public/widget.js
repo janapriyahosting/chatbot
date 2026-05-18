@@ -234,7 +234,7 @@
     try {
       await fetch(API_BASE + "/widget/close", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversation_id: state.conversationId })
+        body: JSON.stringify({ conversation_id: state.conversationId, visitor_id: getVisitorId() })
       });
     } catch (e) { /* swallow — server-side close still happens via timeout */ }
     handleStatusChange("closed");
@@ -341,7 +341,7 @@
             fetch(API_BASE + "/widget/document-clicked", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ conversation_id: state.conversationId, node_id: cfg.node_id }),
+              body: JSON.stringify({ conversation_id: state.conversationId, visitor_id: getVisitorId(), node_id: cfg.node_id }),
               keepalive: true,
             }).catch(function () {});
           } catch (e) { /* ignore */ }
@@ -586,7 +586,7 @@
           var fo = inp.files && inp.files[0];
           if (!fo) return;
           var fd = new FormData(); fd.append("file", fo);
-          var res = await fetch(API_BASE + "/widget/upload?conversation_id=" + state.conversationId, { method: "POST", body: fd });
+          var res = await fetch(API_BASE + "/widget/upload?conversation_id=" + state.conversationId + "&visitor_id=" + encodeURIComponent(getVisitorId() || ""), { method: "POST", body: fd });
           if (res.ok) { var d = await res.json(); inp.__fileUploadUrl = d.url; }
           else { inp.value = ""; alert("Upload failed"); }
         });
@@ -671,7 +671,7 @@
             var fileObj = inp.files && inp.files[0];
             if (!fileObj) return;
             var fd = new FormData(); fd.append("file", fileObj);
-            var res = await fetch(API_BASE + "/widget/upload?conversation_id=" + state.conversationId, {
+            var res = await fetch(API_BASE + "/widget/upload?conversation_id=" + state.conversationId + "&visitor_id=" + encodeURIComponent(getVisitorId() || ""), {
               method: "POST", body: fd,
             });
             if (res.ok) {
@@ -748,7 +748,7 @@
         addMessage("visitor", h("div", { class: "cb-bubble", text: t }));
         fetch(API_BASE + "/widget/message", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ conversation_id: state.conversationId, text: t })
+          body: JSON.stringify({ conversation_id: state.conversationId, visitor_id: getVisitorId(), text: t })
         });
       },
     });
@@ -773,7 +773,7 @@
     state.csatShown = true;
     var convId = state.conversationId;
     // Don't ask twice if the visitor already rated (e.g. they reloaded).
-    fetch(API_BASE + "/widget/csat/" + encodeURIComponent(convId))
+    fetch(API_BASE + "/widget/csat/" + encodeURIComponent(convId) + "?visitor_id=" + encodeURIComponent(getVisitorId() || ""))
       .then(function (r) { return r.ok ? r.json() : { submitted: false }; })
       .then(function (d) { if (d && !d.submitted) renderCsatBlock(convId); })
       .catch(function () { renderCsatBlock(convId); });
@@ -806,6 +806,7 @@
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           conversation_id: convId,
+          visitor_id: getVisitorId(),
           positive: positive,
           comment: comment || null,
         })
@@ -860,7 +861,7 @@
     try {
       var res = await fetch(API_BASE + "/widget/poll", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversation_id: state.conversationId, since_id: state.lastMsgId })
+        body: JSON.stringify({ conversation_id: state.conversationId, visitor_id: getVisitorId(), since_id: state.lastMsgId })
       });
       if (!res.ok) return;
       var data = await res.json();
@@ -967,7 +968,7 @@
     try {
       var res = await fetch(API_BASE + "/widget/reply", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversation_id: state.conversationId, payload: payload })
+        body: JSON.stringify({ conversation_id: state.conversationId, visitor_id: getVisitorId(), payload: payload })
       });
       if (res.status === 422) {
         // Per-field validation errors from the server

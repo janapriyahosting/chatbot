@@ -22,6 +22,20 @@ router = APIRouter(
 )
 
 
+# Cells starting with =, +, -, @, tab, or CR are interpreted as formulas by
+# Excel/LibreOffice — visitor-supplied values like `=cmd|'/c calc'!A1` would
+# execute on the admin's workstation when the export is opened. Prefix with
+# a single quote to defang while leaving the displayed value intact.
+_CSV_DANGEROUS_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(v: object) -> str:
+    s = "" if v is None else str(v)
+    if s and s[0] in _CSV_DANGEROUS_PREFIXES:
+        return "'" + s
+    return s
+
+
 def _iso(dt: datetime | None) -> str:
     return dt.isoformat() if dt else ""
 
@@ -95,20 +109,20 @@ async def export_csv(
         u = utms.get(l.id)
         w.writerow([
             _iso(l.created_at),
-            l.name or "", l.phone or "", l.email or "",
+            _csv_safe(l.name), _csv_safe(l.phone), _csv_safe(l.email),
             "yes" if l.phone_verified else "no",
-            (u.utm_source if u else "") or "",
-            (u.utm_medium if u else "") or "",
-            (u.utm_campaign if u else "") or "",
-            (u.utm_term if u else "") or "",
-            (u.utm_content if u else "") or "",
-            (u.gclid if u else "") or "",
-            (u.fbclid if u else "") or "",
-            (u.referrer if u else "") or "",
-            (u.landing_url if u else "") or "",
+            _csv_safe(u.utm_source if u else ""),
+            _csv_safe(u.utm_medium if u else ""),
+            _csv_safe(u.utm_campaign if u else ""),
+            _csv_safe(u.utm_term if u else ""),
+            _csv_safe(u.utm_content if u else ""),
+            _csv_safe(u.gclid if u else ""),
+            _csv_safe(u.fbclid if u else ""),
+            _csv_safe(u.referrer if u else ""),
+            _csv_safe(u.landing_url if u else ""),
             str(l.bot_id),
             str(l.conversation_id) if l.conversation_id else "",
-            json.dumps(l.fields or {}, ensure_ascii=False),
+            _csv_safe(json.dumps(l.fields or {}, ensure_ascii=False)),
         ])
 
     filename = "leads" + (f"-{bot_id}" if bot_id else "") + ".csv"

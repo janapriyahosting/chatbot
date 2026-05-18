@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as env_settings
+from app.core.crypto import encrypt
 from app.core.db import get_session
 from app.core.security import require_role
 from app.core.working_hours import SETTING_KEY as HOURS_KEY
@@ -72,8 +73,11 @@ class SmtpPayload(BaseModel):
     # Empty = keep existing (don't overwrite with blank). Use "__clear__" to wipe.
     password: str = ""
     from_addr: str = ""
-    use_tls: bool = True
-    use_ssl: bool = False
+    # None = keep existing — avoids the case where a partial form save (e.g. an
+    # admin only meaning to fix the username) silently clobbers a working
+    # STARTTLS config back to False.
+    use_tls: bool | None = None
+    use_ssl: bool | None = None
 
 
 @router.get(
@@ -103,12 +107,14 @@ async def put_smtp(payload: SmtpPayload, db: AsyncSession = Depends(get_session)
     cfg["port"] = payload.port
     cfg["username"] = payload.username
     cfg["from_addr"] = payload.from_addr
-    cfg["use_tls"] = payload.use_tls
-    cfg["use_ssl"] = payload.use_ssl
+    if payload.use_tls is not None:
+        cfg["use_tls"] = payload.use_tls
+    if payload.use_ssl is not None:
+        cfg["use_ssl"] = payload.use_ssl
     if payload.password == "__clear__":
         cfg["password"] = ""
     elif payload.password:
-        cfg["password"] = payload.password
+        cfg["password"] = encrypt(payload.password)
     # else: leave existing password alone
     await _save(db, SMTP_KEY, cfg)
     return {"ok": True}
@@ -149,7 +155,7 @@ async def put_o365(payload: O365Payload, db: AsyncSession = Depends(get_session)
     if payload.client_secret == "__clear__":
         cfg["client_secret"] = ""
     elif payload.client_secret:
-        cfg["client_secret"] = payload.client_secret
+        cfg["client_secret"] = encrypt(payload.client_secret)
     await _save(db, O365_KEY, cfg)
     return {"ok": True}
 
@@ -200,12 +206,12 @@ async def put_whatsapp(
     if payload.api_key == "__clear__":
         cfg["api_key"] = ""
     elif payload.api_key:
-        cfg["api_key"] = payload.api_key
+        cfg["api_key"] = encrypt(payload.api_key)
 
     if payload.webhook_secret == "__clear__":
         cfg["webhook_secret"] = ""
     elif payload.webhook_secret:
-        cfg["webhook_secret"] = payload.webhook_secret
+        cfg["webhook_secret"] = encrypt(payload.webhook_secret)
 
     await _save(db, WHATSAPP_KEY, cfg)
     return {"ok": True}
@@ -235,6 +241,6 @@ async def put_git(payload: GitPayload, db: AsyncSession = Depends(get_session)) 
     if payload.token == "__clear__":
         cfg["token"] = ""
     elif payload.token:
-        cfg["token"] = payload.token
+        cfg["token"] = encrypt(payload.token)
     await _save(db, GIT_KEY, cfg)
     return {"ok": True}

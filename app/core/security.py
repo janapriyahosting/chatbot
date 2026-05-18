@@ -56,12 +56,16 @@ def dummy_verify_password(plain: str) -> None:
         pass
 
 
+AUDIENCE = "chatbot-api"
+
+
 def make_token(user_id: str, role: str) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(hours=settings.jwt_ttl_hours)
     return jwt.encode(
         {
             "iss": ISSUER,
+            "aud": AUDIENCE,
             "sub": user_id,
             "role": role,
             "iat": now,
@@ -76,12 +80,15 @@ def make_token(user_id: str, role: str) -> str:
 def decode_token(token: str) -> dict:
     # `require` forces the listed claims to be present — without it, a token
     # forged by a sibling service that omits e.g. exp would silently decode.
+    # `audience` pins the token to this service so a token signed with the
+    # same JWT secret for a sibling service can't be replayed here.
     return jwt.decode(
         token,
         settings.jwt_secret,
         algorithms=[ALGO],
         issuer=ISSUER,
-        options={"require": ["exp", "iat", "sub", "jti", "iss"]},
+        audience=AUDIENCE,
+        options={"require": ["exp", "iat", "sub", "jti", "iss", "aud"]},
     )
 
 

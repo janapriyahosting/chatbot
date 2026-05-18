@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auto_close import close_stale_bot_convs
+from app.core.crypto import decrypt
 from app.core.db import get_session
 from app.core.security import require_role
 from app.models.app_setting import AppSetting
@@ -118,7 +119,7 @@ def _sanitise(text: str, token: str) -> str:
 async def git_push(db: AsyncSession = Depends(get_session)) -> dict:
     row = (await db.execute(select(AppSetting).where(AppSetting.key == "git"))).scalars().first()
     cfg = dict(row.value) if row and isinstance(row.value, dict) else {}
-    token = cfg.get("token") or ""
+    token = decrypt(cfg.get("token") or "")
     if not token:
         raise HTTPException(status_code=400, detail="GitHub token is not configured")
 

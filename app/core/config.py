@@ -113,6 +113,12 @@ class Settings(BaseSettings):
     # Public-facing base URL used in email deeplinks (e.g. assignment notifications).
     public_base_url: str = "https://chatbot.janapriyahomes.com"
 
+    # Symmetric key used to encrypt admin-managed secrets (SMTP password,
+    # O365 client_secret, WhatsApp api_key, GitHub PAT) at rest in app_setting.
+    # Generate with `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`.
+    # Empty disables encryption — only safe while migrating from legacy plaintext.
+    secrets_key: str = ""
+
     # --- Microsoft 365 / Entra ID OAuth (strict allowlist) ---
     # Empty values disable the "Sign in with Microsoft" button.
     o365_tenant_id: str = ""

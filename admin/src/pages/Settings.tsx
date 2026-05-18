@@ -188,7 +188,17 @@ function SmtpCard() {
 
   if (!cfg) return null;
 
-  const startEdit = () => { setDraft({ ...cfg }); setPw(""); setMsg(null); setErr(null); setEditing(true); };
+  const startEdit = () => {
+    // Explicitly normalise the booleans so undefined doesn't coerce to false
+    // on save — that's how a previous "username only" edit silently downgraded
+    // the live STARTTLS config and broke email delivery.
+    setDraft({
+      ...cfg,
+      use_tls: cfg.use_tls === undefined ? true : !!cfg.use_tls,
+      use_ssl: !!cfg.use_ssl,
+    });
+    setPw(""); setMsg(null); setErr(null); setEditing(true);
+  };
   const cancel = () => { setEditing(false); setMsg(null); setErr(null); };
   const update = (k: string, v: any) => setDraft({ ...draft, [k]: v });
 

@@ -24,6 +24,7 @@ class SessionStart(BaseModel):
 
 class ReplyRequest(BaseModel):
     conversation_id: uuid.UUID
+    visitor_id: str | None = Field(default=None, max_length=64)
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -44,6 +45,7 @@ class StepResponse(BaseModel):
 
 class PollRequest(BaseModel):
     conversation_id: uuid.UUID
+    visitor_id: str | None = Field(default=None, max_length=64)
     since_id: uuid.UUID | None = None
 
 
@@ -64,4 +66,5 @@ class PollResponse(BaseModel):
 
 class WidgetMessageRequest(BaseModel):
     conversation_id: uuid.UUID
+    visitor_id: str | None = Field(default=None, max_length=64)
     text: str

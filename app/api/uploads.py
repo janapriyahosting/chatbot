@@ -23,7 +23,7 @@ router = APIRouter(
 _ROOT = Path(__file__).resolve().parent.parent.parent / "public" / "uploads"
 _ROOT.mkdir(parents=True, exist_ok=True)
 
-_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 _VIDEO_EXTS = {".mp4", ".webm", ".mov"}
 _DOCUMENT_EXTS = {
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",

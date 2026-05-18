@@ -7,9 +7,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import valkey.asyncio as _valkey
+
 from app.agents.base import Message as AgentMessage
 from app.agents.groq_agent import GroqAgent
 from app.core.assignment import assign_conversation, current_assignment
+from app.core.config import settings as _env_settings
 from app.core.db import get_session
 from app.core.security import current_user, require_role
 from app.models.conversation import (
@@ -415,11 +418,31 @@ _TONE_HINTS = {
 }
 
 
+_polish_vk: _valkey.Valkey | None = None
+
+
+def _polish_vk_client() -> _valkey.Valkey:
+    global _polish_vk
+    if _polish_vk is None:
+        _polish_vk = _valkey.from_url(_env_settings.valkey_url, decode_responses=True)
+    return _polish_vk
+
+
 @router.post("/polish", response_model=PolishResponse)
 async def polish(
-    payload: PolishRequest, _: User = Depends(current_user)
+    payload: PolishRequest, user: User = Depends(current_user)
 ) -> PolishResponse:
     """Rewrite the agent's draft via Groq. Any logged-in user can call this."""
+    # Per-user Groq quota guard. A compromised low-trust agent token would
+    # otherwise be able to loop this endpoint and drain the LLM credit pool.
+    vk = _polish_vk_client()
+    key = f"{_env_settings.valkey_prefix}polish:user:{user.id}"
+    n = await vk.incr(key)
+    if n == 1:
+        await vk.expire(key, 60)
+    if n > 30:
+        raise HTTPException(status_code=429, detail="polish rate limit (30/min) exceeded")
+
     draft = (payload.text or "").strip()
     if not draft:
         raise HTTPException(400, "text is empty")

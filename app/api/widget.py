@@ -102,6 +102,21 @@ async def _enforce_origin_for_conv(
     await _enforce_origin(request, bot.site_id if bot else None, db)
 
 
+def _check_visitor_match(conv: Conversation, visitor_id: str | None) -> None:
+    """Prevent IDOR — a leaked conversation_id must NOT let a third party
+    read the transcript, close the chat, submit CSAT, or trigger the doc-click
+    email. The widget stores visitor_id in localStorage from /widget/session
+    and is expected to echo it on every per-conversation call.
+
+    We return 404 (not 403) so an attacker can't distinguish "wrong owner"
+    from "no such conversation".
+    """
+    if not visitor_id or not secrets.compare_digest(
+        str(conv.visitor_id or ""), str(visitor_id)
+    ):
+        raise HTTPException(status_code=404, detail="conversation not found")
+
+
 async def _rate_limit(
     request: Request,
     *,
@@ -255,9 +270,13 @@ async def _handle_otp_side_effects(
 
 
 @router.get("/persona/{bot_key}")
-async def get_persona(bot_key: str, db: AsyncSession = Depends(get_session)) -> dict:
+async def get_persona(
+    bot_key: str, request: Request, db: AsyncSession = Depends(get_session)
+) -> dict:
     """Public endpoint — lets the widget show the bot's avatar/name/branding
     on the launcher before the visitor opens the chat (no session yet)."""
+    # Loose cap: defends against bot-key enumeration scraping.
+    await _rate_limit(request, action="persona", per_ip_max=120, window=60)
     bot_result = await db.execute(select(Bot).where(Bot.public_key == bot_key))
     bot = bot_result.scalars().first()
     if not bot or not bot.is_active:
@@ -416,10 +435,26 @@ async def start_session(
 
 
 @router.post("/poll", response_model=PollResponse)
-async def poll(payload: PollRequest, db: AsyncSession = Depends(get_session)) -> PollResponse:
+async def poll(
+    payload: PollRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+) -> PollResponse:
     conv = await db.get(Conversation, payload.conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, payload.visitor_id)
+    await _enforce_origin_for_conv(request, conv, db)
+    # Polling can fire as often as every 2s while the widget is open. Cap
+    # well above legitimate usage but tight enough to stop scraping floods.
+    await _rate_limit(
+        request,
+        action="poll",
+        conversation_id=conv.id,
+        per_ip_max=240,
+        per_conv_max=120,
+        window=60,
+    )
 
     q = select(Message).where(Message.conversation_id == conv.id)
     if payload.since_id:
@@ -462,17 +497,24 @@ async def poll(payload: PollRequest, db: AsyncSession = Depends(get_session)) ->
 
 class _CloseRequest(BaseModel):
     conversation_id: uuid.UUID
+    visitor_id: str | None = None
 
 
 @router.post("/close", status_code=204)
 async def visitor_close(
-    payload: _CloseRequest, db: AsyncSession = Depends(get_session)
+    payload: _CloseRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
 ) -> None:
     """Visitor-initiated end of chat. Closes the conversation and drops a
     system message so the agent's inbox sees the disconnect on next poll."""
     conv = await db.get(Conversation, payload.conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, payload.visitor_id)
+    await _enforce_origin_for_conv(request, conv, db)
+    await _rate_limit(request, action="close", conversation_id=conv.id,
+                      per_ip_max=10, per_conv_max=3, window=60)
     if conv.status == ConversationStatus.closed:
         return
     conv.status = ConversationStatus.closed
@@ -491,13 +533,16 @@ async def visitor_close(
 
 class _CsatRequest(BaseModel):
     conversation_id: uuid.UUID
+    visitor_id: str | None = None
     positive: bool
     comment: str | None = None
 
 
 @router.post("/csat", status_code=204)
 async def visitor_csat(
-    payload: _CsatRequest, db: AsyncSession = Depends(get_session)
+    payload: _CsatRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
 ) -> None:
     """Visitor-submitted satisfaction rating. One per conversation; second
     submission overwrites the first (cheap and forgiving)."""
@@ -506,6 +551,10 @@ async def visitor_csat(
     conv = await db.get(Conversation, payload.conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, payload.visitor_id)
+    await _enforce_origin_for_conv(request, conv, db)
+    await _rate_limit(request, action="csat", conversation_id=conv.id,
+                      per_ip_max=20, per_conv_max=5, window=60)
     # Pull the latest assignee (the agent at close time) for fast rollups
     last_assignment = (
         await db.execute(
@@ -538,11 +587,19 @@ async def visitor_csat(
 
 @router.get("/csat/{conversation_id}")
 async def visitor_csat_status(
-    conversation_id: uuid.UUID, db: AsyncSession = Depends(get_session)
+    conversation_id: uuid.UUID,
+    request: Request,
+    visitor_id: str | None = None,
+    db: AsyncSession = Depends(get_session),
 ) -> dict:
     """Lets the widget skip the prompt if a rating was already submitted
     (e.g. the visitor reloaded the page after rating)."""
     from app.models.csat import CsatRating
+    conv = await db.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, visitor_id)
+    await _enforce_origin_for_conv(request, conv, db)
     row = (
         await db.execute(select(CsatRating).where(CsatRating.conversation_id == conversation_id))
     ).scalars().first()
@@ -557,6 +614,7 @@ from fastapi import UploadFile as _UploadFile
 async def visitor_upload(
     conversation_id: uuid.UUID,
     request: Request,
+    visitor_id: str | None = None,
     file: _UploadFile = _FFile(...),
     db: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -572,6 +630,7 @@ async def visitor_upload(
     conv = await db.get(Conversation, conversation_id)
     if not conv or conv.status == ConversationStatus.closed:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, visitor_id)
 
     await _enforce_origin_for_conv(request, conv, db)
     # Tighter cap on uploads — each one writes to disk and can be expensive.
@@ -587,6 +646,19 @@ async def visitor_upload(
     ext = _P(file.filename or "").suffix.lower()
     if ext not in _WIDGET_ALLOWED_EXTS:
         raise HTTPException(status_code=415, detail=f"unsupported extension {ext!r}")
+
+    # Content-Type sanity check. Without this an attacker can rename .exe to
+    # .pdf and use /static/uploads as a public phishing-payload host.
+    ctype = (file.content_type or "").lower()
+    if ext in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+        if not ctype.startswith("image/"):
+            raise HTTPException(status_code=415, detail=f"content-type mismatch {ctype!r}")
+    elif ext in {".mp4", ".webm", ".mov"}:
+        if not ctype.startswith("video/"):
+            raise HTTPException(status_code=415, detail=f"content-type mismatch {ctype!r}")
+    elif ext == ".pdf":
+        if ctype not in {"application/pdf", "application/octet-stream"}:
+            raise HTTPException(status_code=415, detail=f"content-type mismatch {ctype!r}")
 
     uid = _s.token_hex(16)
     dest = _WIDGET_UPLOAD_ROOT / f"{uid}{ext}"
@@ -646,6 +718,7 @@ def _parse_cc_list(raw: str | list | None) -> list[str]:
 
 class DocumentClickRequest(BaseModel):
     conversation_id: uuid.UUID
+    visitor_id: str | None = None
     node_id: str
 
 
@@ -674,6 +747,8 @@ async def widget_document_clicked(
     conv = await db.get(Conversation, payload.conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, payload.visitor_id)
+    await _enforce_origin_for_conv(request, conv, db)
 
     flow = await _get_flow_for_bot(conv.bot_id, db)
     nodes = (flow.definition or {}).get("nodes") or []
@@ -786,6 +861,7 @@ async def send_message(
     conv = await db.get(Conversation, payload.conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, payload.visitor_id)
     if conv.status not in (
         ConversationStatus.queued,
         ConversationStatus.assigned,
@@ -867,6 +943,7 @@ async def reply(
     conv = await db.get(Conversation, payload.conversation_id)
     if not conv:
         raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, payload.visitor_id)
     if conv.status == ConversationStatus.closed:
         raise HTTPException(status_code=410, detail="conversation closed")
 

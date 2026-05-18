@@ -39,12 +39,17 @@ def _extract_inbound(payload: dict) -> tuple[str, str] | None:
 async def inbound(request: Request, x_webhook_secret: str | None = Header(default=None)):
     cfg = await whatsapp_send._load_whatsapp_config()
 
-    if cfg["webhook_secret"]:
-        # constant-time compare to avoid leaking the secret via timing.
-        if not x_webhook_secret or not hmac.compare_digest(
-            x_webhook_secret, cfg["webhook_secret"]
-        ):
-            raise HTTPException(status_code=401, detail="bad webhook secret")
+    # Fail closed: with no configured secret the endpoint would otherwise be an
+    # open relay into Groq/Gemini and outbound Chat360 SMS. Refuse traffic
+    # until the secret is configured in /admin/settings.
+    if not cfg["webhook_secret"]:
+        log.warning("WhatsApp webhook hit with no CHAT360_WEBHOOK_SECRET configured; refusing.")
+        raise HTTPException(status_code=503, detail="whatsapp webhook not configured")
+    # constant-time compare to avoid leaking the secret via timing.
+    if not x_webhook_secret or not hmac.compare_digest(
+        x_webhook_secret, cfg["webhook_secret"]
+    ):
+        raise HTTPException(status_code=401, detail="bad webhook secret")
 
     payload = await request.json()
     parsed = _extract_inbound(payload)

@@ -24,6 +24,7 @@ _phone_re = re.compile(r"^[6-9]\d{9}$")
 _OTP_KEY_PREFIX = f"{settings.valkey_prefix}otp:"
 _OTP_SEND_PHONE_PREFIX = f"{settings.valkey_prefix}otp:send:phone:"
 _OTP_SEND_IP_PREFIX = f"{settings.valkey_prefix}otp:send:ip:"
+_OTP_FAIL_PHONE_PREFIX = f"{settings.valkey_prefix}otp:fail:phone:"
 
 # Caps SMS sends to protect against toll fraud / SmartPing billing abuse.
 # These are intentionally tight — a real user needs at most 1-2 sends per
@@ -31,6 +32,11 @@ _OTP_SEND_IP_PREFIX = f"{settings.valkey_prefix}otp:send:ip:"
 _OTP_SEND_MAX_PER_PHONE_PER_HOUR = 3
 _OTP_SEND_MAX_PER_IP_PER_HOUR = 10
 _OTP_SEND_WINDOW_SECONDS = 3600
+# Verify-fail lockout per phone. Per-conversation `otp_attempts` already
+# stops a single visitor at OTP_MAX_ATTEMPTS, but an attacker could spawn
+# fresh conversations to multiply guesses on the same phone — this cap
+# enforces a per-phone ceiling across conversations.
+_OTP_VERIFY_FAIL_MAX_PER_PHONE_PER_HOUR = 10
 
 
 class OtpRateLimited(Exception):
@@ -144,14 +150,37 @@ async def verify_otp(phone: str, otp: str) -> bool:
 
     phone = phone.strip()
     otp = (otp or "").strip()
+
+    # Per-phone fail lockout. Reject further verify attempts once the hourly
+    # cap is reached, regardless of which conversation is asking. Counter is
+    # only incremented on miss; a hit clears it.
+    vk = _vk()
+    fail_key = _OTP_FAIL_PHONE_PREFIX + phone
+    try:
+        prior_fails = int(await vk.get(fail_key) or 0)
+    except (TypeError, ValueError):
+        prior_fails = 0
+    if prior_fails >= _OTP_VERIFY_FAIL_MAX_PER_PHONE_PER_HOUR:
+        return False
+
     if settings.otp_provider == "smartping" and settings.smartping_username:
-        cached = await _vk().get(_OTP_KEY_PREFIX + phone)
-        if cached and cached == otp:
-            await _vk().delete(_OTP_KEY_PREFIX + phone)
+        cached = await vk.get(_OTP_KEY_PREFIX + phone)
+        if cached and secrets.compare_digest(str(cached), otp):
+            await vk.delete(_OTP_KEY_PREFIX + phone)
+            await vk.delete(fail_key)
             return True
+        n = await vk.incr(fail_key)
+        if n == 1:
+            await vk.expire(fail_key, _OTP_SEND_WINDOW_SECONDS)
         return False
 
     url = f"{settings.jpus_api_base}{settings.jpus_otp_prefix}/verify-otp"
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(url, json={"phone": phone, "otp": otp, "mode": "register"})
-    return r.status_code == 200
+    if r.status_code == 200:
+        await vk.delete(fail_key)
+        return True
+    n = await vk.incr(fail_key)
+    if n == 1:
+        await vk.expire(fail_key, _OTP_SEND_WINDOW_SECONDS)
+    return False

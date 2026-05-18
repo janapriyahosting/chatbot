@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as env_settings
+from app.core.crypto import decrypt
 from app.core.db import get_session
 from app.core.security import make_token
 from app.models.app_setting import AppSetting
@@ -52,7 +53,7 @@ async def _load_o365_config(db: AsyncSession) -> dict:
     return {
         "tenant_id": pick("tenant_id", env_settings.o365_tenant_id),
         "client_id": pick("client_id", env_settings.o365_client_id),
-        "client_secret": pick("client_secret", env_settings.o365_client_secret),
+        "client_secret": decrypt(pick("client_secret", env_settings.o365_client_secret)),
         "redirect_path": pick("redirect_path", env_settings.o365_redirect_path),
     }
 
