@@ -268,7 +268,7 @@
     try { return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
     catch (e) { return ""; }
   }
-  function addMessage(side, bubbleEl) {
+  function addMessage(side, bubbleEl, messageId) {
     var now = Date.now();
     // Show a timestamp separator on first message or when >5min since the last one
     if (now - _lastStamp > 5 * 60 * 1000) {
@@ -283,27 +283,147 @@
       else children.push(h("div", { class: "cb-msg-avatar cb-msg-avatar-empty" }));
     }
     children.push(bubbleEl);
+    if (side === "bot" && messageId) {
+      children.push(buildFeedbackRow(messageId));
+    }
     var m = h("div", { class: "cb-msg " + side }, children);
+    if (side === "bot" && messageId) m.setAttribute("data-msg-id", messageId);
     body.appendChild(m);
     // Scroll after layout reflow so scrollHeight includes the new node.
     requestAnimationFrame(function () { body.scrollTop = body.scrollHeight; });
   }
 
+  // Per-message visitor votes, keyed by message_id. Populated from the GET on
+  // open and from local clicks. Used to restore UI state across re-renders.
+  var _msgVotes = {};
+
+  function buildFeedbackRow(messageId) {
+    var row = h("div", { class: "cb-msg-fb", "data-fb-for": messageId });
+    var thanks = h("span", { class: "cb-msg-fb-thanks", style: "display:none", text: "Thanks!" });
+    var commentBox = h("div", { class: "cb-msg-fb-comment", style: "display:none" });
+    var commentInput = h("textarea", {
+      class: "cb-msg-fb-textarea", rows: "2",
+      placeholder: "Tell us more (optional)"
+    });
+    var sendBtn = h("button", { class: "cb-msg-fb-send", type: "button", text: "Send" });
+    commentBox.appendChild(commentInput);
+    commentBox.appendChild(sendBtn);
+
+    var btnUp, btnDown;
+
+    function postRating(rating, comment) {
+      _msgVotes[messageId] = rating;
+      return fetch(API_BASE + "/widget/message-feedback", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          conversation_id: state.conversationId,
+          message_id: messageId,
+          visitor_id: getVisitorId(),
+          rating: rating,
+          comment: comment || null,
+        })
+      }).catch(function () { /* swallow; visitor sees no error */ });
+    }
+
+    function applyChosen(rating) {
+      btnUp.classList.toggle("cb-msg-fb-on", rating === "up");
+      btnDown.classList.toggle("cb-msg-fb-on", rating === "down");
+      btnUp.classList.toggle("cb-msg-fb-faded", rating === "down");
+      btnDown.classList.toggle("cb-msg-fb-faded", rating === "up");
+    }
+
+    btnUp = h("button", {
+      class: "cb-msg-fb-btn", "aria-label": "Good answer", title: "Good answer", type: "button",
+      onclick: function () {
+        applyChosen("up");
+        commentBox.style.display = "none";
+        thanks.style.display = "inline";
+        postRating("up", null);
+      }
+    }, ["👍"]);
+    btnDown = h("button", {
+      class: "cb-msg-fb-btn", "aria-label": "Bad answer", title: "Bad answer", type: "button",
+      onclick: function () {
+        applyChosen("down");
+        thanks.style.display = "none";
+        commentBox.style.display = "block";
+        postRating("down", null);
+        try { commentInput.focus(); } catch (e) {}
+      }
+    }, ["👎"]);
+
+    sendBtn.addEventListener("click", function () {
+      var c = (commentInput.value || "").trim();
+      sendBtn.disabled = true;
+      commentInput.disabled = true;
+      postRating("down", c).then(function () {
+        commentBox.style.display = "none";
+        thanks.style.display = "inline";
+      });
+    });
+
+    row.appendChild(btnUp);
+    row.appendChild(btnDown);
+    row.appendChild(thanks);
+    row.appendChild(commentBox);
+
+    // Restore prior vote if we already have one for this message.
+    var prior = _msgVotes[messageId];
+    if (prior) {
+      applyChosen(prior);
+      thanks.style.display = "inline";
+    }
+    return row;
+  }
+
+  function refreshFeedbackRows() {
+    // After /widget/message-feedback GET, paint any prior votes onto rows
+    // already in the DOM. New rows pick up the state via _msgVotes themselves.
+    Object.keys(_msgVotes).forEach(function (mid) {
+      var row = body.querySelector('.cb-msg-fb[data-fb-for="' + mid + '"]');
+      if (!row) return;
+      var btnUp = row.querySelector('.cb-msg-fb-btn[aria-label="Good answer"]');
+      var btnDown = row.querySelector('.cb-msg-fb-btn[aria-label="Bad answer"]');
+      var thanks = row.querySelector('.cb-msg-fb-thanks');
+      if (!btnUp || !btnDown) return;
+      var rating = _msgVotes[mid];
+      btnUp.classList.toggle("cb-msg-fb-on", rating === "up");
+      btnDown.classList.toggle("cb-msg-fb-on", rating === "down");
+      btnUp.classList.toggle("cb-msg-fb-faded", rating === "down");
+      btnDown.classList.toggle("cb-msg-fb-faded", rating === "up");
+      if (thanks) thanks.style.display = "inline";
+    });
+  }
+
+  function loadPriorFeedback() {
+    if (!state.conversationId) return;
+    var url = API_BASE + "/widget/message-feedback/" + encodeURIComponent(state.conversationId)
+      + "?visitor_id=" + encodeURIComponent(getVisitorId() || "");
+    fetch(url)
+      .then(function (r) { return r.ok ? r.json() : { feedbacks: [] }; })
+      .then(function (d) {
+        (d.feedbacks || []).forEach(function (f) { _msgVotes[f.message_id] = f.rating; });
+        refreshFeedbackRows();
+      })
+      .catch(function () { /* offline / 404 — non-fatal */ });
+  }
+
   function renderOutput(out) {
     var kind = out.kind, cfg = out.config || {};
+    var mid = out.message_id || null;  // server-attached when the kind is feedback-eligible
     if (kind === "text") {
       var txt = (cfg.body || "").trim();
       if (!txt) return; // skip empty text bubbles
-      addMessage("bot", bubbleWithMarkdown(txt));
+      addMessage("bot", bubbleWithMarkdown(txt), mid);
     } else if (kind === "image") {
       var box = h("div", { class: "cb-media" }, [h("img", { src: absUrl(cfg.url) })]);
       if (cfg.caption) box.appendChild(h("div", { class: "cb-caption", text: cfg.caption }));
-      addMessage("bot", box);
+      addMessage("bot", box, mid);
     } else if (kind === "video") {
       var v = h("video", { src: absUrl(cfg.url), controls: "controls" });
       var box2 = h("div", { class: "cb-media" }, [v]);
       if (cfg.caption) box2.appendChild(h("div", { class: "cb-caption", text: cfg.caption }));
-      addMessage("bot", box2);
+      addMessage("bot", box2, mid);
     } else if (kind === "document") {
       var url = absUrl(cfg.url || "");
       var title = cfg.title || cfg.original_filename || "Document";
@@ -352,9 +472,9 @@
       }, [docIcon, docInfo, dlBtn]);
       if (cfg.caption) {
         var wrap = h("div", {}, [docCard, h("div", { class: "cb-caption", text: cfg.caption })]);
-        addMessage("bot", wrap);
+        addMessage("bot", wrap, mid);
       } else {
-        addMessage("bot", docCard);
+        addMessage("bot", docCard, mid);
       }
     } else if (kind === "schedule") {
       var sWrap = h("div", { class: "cb-form" });
@@ -477,7 +597,7 @@
       };
       prev.addEventListener("click", function () { scrollByCard(-1); });
       next.addEventListener("click", function () { scrollByCard(1); });
-      addMessage("bot", carousel);
+      addMessage("bot", carousel, mid);
     } else if (kind === "buttons") {
       addMessage("bot", h("div", { class: "cb-bubble", text: cfg.body || "" }));
       var row = h("div", { class: "cb-buttons" },
@@ -869,15 +989,16 @@
       handleStatusChange(data.status);
       (data.messages || []).forEach(function (m) {
         state.lastMsgId = m.id;
+        var fbMid = m.sender === "bot" ? m.id : null;
         if (m.sender === "agent" || m.sender === "bot") {
           if (m.kind === "text") {
-            addMessage("bot", bubbleWithMarkdown(m.body || ""));
+            addMessage("bot", bubbleWithMarkdown(m.body || ""), fbMid);
           } else if (m.kind === "image" || m.kind === "document") {
             var p = m.payload || {};
             var cfg = m.kind === "image"
               ? { url: p.url, caption: p.caption }
               : { url: p.url, original_filename: p.filename, description: p.caption };
-            renderOutput({ kind: m.kind, config: cfg });
+            renderOutput({ kind: m.kind, config: cfg, message_id: fbMid });
           }
         } else if (m.sender === "system") {
           addSystemMsg(m.body || "");
@@ -952,6 +1073,8 @@
       state.status = data.status || "bot";
       applyPersona(data.persona);
       setVisitorId(data.visitor_id);
+      // Prime _msgVotes BEFORE rendering so each row picks up its prior state on creation.
+      loadPriorFeedback();
       // Boot: show everything instantly so the first paint is the full welcome.
       await renderOutputsStaggered(data.outputs || [], { stagger: false });
       if (state.status === "queued" || state.status === "assigned" || state.status === "ai") {

@@ -170,19 +170,29 @@ async def _get_flow_for_bot(bot_id: uuid.UUID, db: AsyncSession) -> Flow:
     return flow
 
 
+_FEEDBACK_ELIGIBLE_KINDS = {"text", "image", "video", "document", "carousel"}
+
+
 async def _persist_outputs(
     db: AsyncSession, conv: Conversation, outputs: list[dict]
 ) -> None:
+    """Persist runtime outputs as Message rows. Each output dict is mutated
+    in place to include `message_id` for kinds the visitor can rate — this
+    lets the widget attach feedback buttons without waiting for the next poll
+    to assign IDs server-side."""
     for out in outputs:
-        db.add(
-            Message(
-                conversation_id=conv.id,
-                sender=MessageSender.bot,
-                kind=out.get("kind", "text"),
-                body=(out.get("config") or {}).get("body"),
-                payload=out,
-            )
+        kind = out.get("kind", "text")
+        msg = Message(
+            id=uuid.uuid4(),
+            conversation_id=conv.id,
+            sender=MessageSender.bot,
+            kind=kind,
+            body=(out.get("config") or {}).get("body"),
+            payload=out,
         )
+        db.add(msg)
+        if kind in _FEEDBACK_ELIGIBLE_KINDS:
+            out["message_id"] = str(msg.id)
 
 
 async def _handle_otp_side_effects(
@@ -604,6 +614,110 @@ async def visitor_csat_status(
         await db.execute(select(CsatRating).where(CsatRating.conversation_id == conversation_id))
     ).scalars().first()
     return {"submitted": bool(row), "positive": row.positive if row else None}
+
+
+_MESSAGE_FEEDBACK_COMMENT_MAX = 1000
+
+
+class _MessageFeedbackRequest(BaseModel):
+    conversation_id: uuid.UUID
+    message_id: uuid.UUID
+    visitor_id: str | None = None
+    rating: str  # 'up' | 'down'
+    comment: str | None = None
+
+
+@router.post("/message-feedback", status_code=204)
+async def visitor_message_feedback(
+    payload: _MessageFeedbackRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+) -> None:
+    """Visitor thumbs-up/down on a specific bot message. Upsert per
+    (message_id, visitor_id) — resubmitting changes the rating/comment.
+    Comments are persisted only on 'down' (positive feedback rarely needs text)."""
+    from app.models.message_feedback import MessageFeedback
+
+    if payload.rating not in ("up", "down"):
+        raise HTTPException(status_code=422, detail="rating must be 'up' or 'down'")
+
+    conv = await db.get(Conversation, payload.conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, payload.visitor_id)
+    await _enforce_origin_for_conv(request, conv, db)
+    await _rate_limit(request, action="msgfb", conversation_id=conv.id,
+                      per_ip_max=60, per_conv_max=30, window=60)
+
+    msg = await db.get(Message, payload.message_id)
+    if not msg or msg.conversation_id != conv.id:
+        raise HTTPException(status_code=404, detail="message not found")
+    if msg.sender != MessageSender.bot:
+        # Visitors can only rate bot answers — rating their own or an agent's
+        # message would be confusing and isn't a use case we want to support.
+        raise HTTPException(status_code=422, detail="only bot messages can be rated")
+
+    comment = None
+    if payload.rating == "down" and payload.comment:
+        comment = payload.comment.strip()[:_MESSAGE_FEEDBACK_COMMENT_MAX] or None
+
+    existing = (
+        await db.execute(
+            select(MessageFeedback).where(
+                MessageFeedback.message_id == msg.id,
+                MessageFeedback.visitor_id == payload.visitor_id,
+            )
+        )
+    ).scalars().first()
+    if existing:
+        existing.rating = payload.rating
+        existing.comment = comment
+    else:
+        db.add(
+            MessageFeedback(
+                message_id=msg.id,
+                conversation_id=conv.id,
+                visitor_id=str(payload.visitor_id),
+                rating=payload.rating,
+                comment=comment,
+            )
+        )
+    await db.commit()
+
+
+@router.get("/message-feedback/{conversation_id}")
+async def visitor_message_feedback_status(
+    conversation_id: uuid.UUID,
+    request: Request,
+    visitor_id: str | None = None,
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    """Returns this visitor's own votes on the conversation's messages so the
+    widget can restore button state on reload."""
+    from app.models.message_feedback import MessageFeedback
+    conv = await db.get(Conversation, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="conversation not found")
+    _check_visitor_match(conv, visitor_id)
+    await _enforce_origin_for_conv(request, conv, db)
+    rows = (
+        await db.execute(
+            select(MessageFeedback).where(
+                MessageFeedback.conversation_id == conversation_id,
+                MessageFeedback.visitor_id == str(visitor_id),
+            )
+        )
+    ).scalars().all()
+    return {
+        "feedbacks": [
+            {
+                "message_id": str(r.message_id),
+                "rating": r.rating,
+                "comment": r.comment,
+            }
+            for r in rows
+        ]
+    }
 
 
 from fastapi import File as _FFile

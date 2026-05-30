@@ -540,6 +540,32 @@ function Bubble({ m }: { m: any }) {
           {new Date(stamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
         </div>
       )}
+      {m.sender === "bot" && m.feedback && (m.feedback.up > 0 || m.feedback.down > 0) && (
+        <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+          {m.feedback.up > 0 && (
+            <span title="Visitor liked this answer" style={{
+              fontSize: 11, padding: "2px 8px", borderRadius: 10,
+              background: "#dcfce7", color: "#166534", fontWeight: 500,
+            }}>
+              👍 {m.feedback.up}
+            </span>
+          )}
+          {m.feedback.down > 0 && (
+            <span title="Visitor disliked this answer" style={{
+              fontSize: 11, padding: "2px 8px", borderRadius: 10,
+              background: "#fee2e2", color: "#991b1b", fontWeight: 500,
+            }}>
+              👎 {m.feedback.down}
+            </span>
+          )}
+          {Array.isArray(m.feedback.down_comments) && m.feedback.down_comments.length > 0 && (
+            <span style={{ fontSize: 11, color: "#6b7280", fontStyle: "italic" }}>
+              "{m.feedback.down_comments[0]}"
+              {m.feedback.down_comments.length > 1 && ` (+${m.feedback.down_comments.length - 1} more)`}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

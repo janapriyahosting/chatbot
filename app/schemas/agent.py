@@ -17,6 +17,13 @@ class ConversationOut(BaseModel):
     assigned_to_name: str | None = None
 
 
+class MessageFeedbackSummary(BaseModel):
+    up: int = 0
+    down: int = 0
+    # Comments left by visitors who rated this message 'down'. Up to a few.
+    down_comments: list[str] = []
+
+
 class MessageOut(BaseModel):
     id: uuid.UUID
     sender: str
@@ -24,6 +31,7 @@ class MessageOut(BaseModel):
     body: str | None
     payload: dict[str, Any]
     created_at: datetime
+    feedback: MessageFeedbackSummary | None = None
 
 
 class ConversationDetail(BaseModel):

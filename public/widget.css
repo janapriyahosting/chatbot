@@ -212,4 +212,29 @@
 .cb-csat-skip { background:#fff; color:#6b7280; border:1px solid #e5e7eb; }
 .cb-csat-skip:hover { background:#f9fafb; }
 .cb-csat-thanks { font-size:13px; color:#059669; font-weight:500; }
+
+/* Per-message visitor feedback (mid-chat thumbs) */
+.cb-msg-fb { display:flex; align-items:center; gap:4px; margin-top:4px;
+  padding-left:36px; opacity:0.55; transition:opacity .12s ease; }
+.cb-msg-fb:hover { opacity:1; }
+.cb-msg-fb-btn { width:24px; height:24px; padding:0; border-radius:50%;
+  border:1px solid transparent; background:transparent; cursor:pointer;
+  font-size:13px; line-height:1; display:grid; place-items:center;
+  color:#6b7280; transition:all .12s ease; }
+.cb-msg-fb-btn:hover { background:#f3f4f6; }
+.cb-msg-fb-btn.cb-msg-fb-on { background:#eef2ff; border-color:#c7d2fe; }
+.cb-msg-fb-btn.cb-msg-fb-faded { opacity:0.3; }
+.cb-msg-fb-thanks { font-size:11px; color:#059669; margin-left:6px; }
+.cb-msg-fb-comment { flex-basis:100%; margin-top:6px; padding-left:0; display:flex;
+  flex-direction:column; gap:6px; }
+.cb-msg-fb-textarea { width:100%; box-sizing:border-box; padding:6px 8px;
+  border:1px solid #e5e7eb; border-radius:6px; font-family:inherit;
+  font-size:12px; color:#1f2937; background:#fff; resize:vertical; min-height:36px; }
+.cb-msg-fb-textarea:focus { outline:none; border-color:#2563eb; }
+.cb-msg-fb-send { align-self:flex-end; padding:4px 10px; border-radius:6px;
+  background:#2563eb; color:#fff; border:1px solid #2563eb;
+  font-size:11px; font-family:inherit; cursor:pointer; font-weight:500; }
+.cb-msg-fb-send:hover:not(:disabled) { background:#1d4ed8; }
+.cb-msg-fb-send:disabled { opacity:0.5; cursor:default; }
+
 @keyframes cb-pulse { 0%,100% { opacity:.3 } 50% { opacity:1 } }

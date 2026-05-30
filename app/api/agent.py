@@ -187,6 +187,8 @@ async def get_conversation(
             raise HTTPException(403, "not your conversation")
 
     from app.models.csat import CsatRating
+    from app.models.message_feedback import MessageFeedback
+    from app.schemas.agent import MessageFeedbackSummary
     msgs = (
         await db.execute(
             select(Message).where(Message.conversation_id == conv_id).order_by(Message.created_at.asc())
@@ -199,6 +201,20 @@ async def get_conversation(
         {"positive": csat_row.positive, "comment": csat_row.comment, "created_at": csat_row.created_at.isoformat()}
         if csat_row else None
     )
+    fb_rows = (
+        await db.execute(
+            select(MessageFeedback).where(MessageFeedback.conversation_id == conv_id)
+        )
+    ).scalars().all()
+    fb_by_msg: dict[uuid.UUID, MessageFeedbackSummary] = {}
+    for r in fb_rows:
+        summary = fb_by_msg.setdefault(r.message_id, MessageFeedbackSummary())
+        if r.rating == "up":
+            summary.up += 1
+        else:
+            summary.down += 1
+            if r.comment:
+                summary.down_comments.append(r.comment)
     return ConversationDetail(
         id=conv.id,
         bot_id=conv.bot_id,
@@ -217,6 +233,7 @@ async def get_conversation(
                 body=m.body,
                 payload=m.payload or {},
                 created_at=m.created_at,
+                feedback=fb_by_msg.get(m.id),
             )
             for m in msgs
         ],

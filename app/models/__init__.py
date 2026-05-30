@@ -3,6 +3,7 @@ from app.models.app_setting import AppSetting
 from app.models.bot import Bot
 from app.models.conversation import Assignment, Conversation, Message
 from app.models.csat import CsatRating
+from app.models.message_feedback import MessageFeedback
 from app.models.flow import Flow, FlowVersion
 from app.models.lead import Lead, LeadUtm
 from app.models.site import Site
@@ -20,6 +21,7 @@ __all__ = [
     "Lead",
     "LeadUtm",
     "Message",
+    "MessageFeedback",
     "MessageTemplate",
     "Site",
     "User",
