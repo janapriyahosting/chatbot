@@ -10,8 +10,7 @@ admin/dist/
 # User-uploaded content (served at runtime; not source)
 public/uploads/
 
-# Editor / OS / backup
-*.bak
-*.bak.*
+# Editor / OS / backup (covers .bak, .bak.1, .bak-pre-secpatch, .backup, etc.)
+*.bak*
 .DS_Store
 *.swp
